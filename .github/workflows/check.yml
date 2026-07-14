@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/30 * * * *" # 30分ごと（GitHub側の負荷で数分〜十数分遅れることあり）
   workflow_dispatch:
+    inputs:
+      test_notify:
+        description: "Discordにテスト通知を送る"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -21,6 +26,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Test notification
+        if: ${{ inputs.test_notify }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "import check; check.notify_discord({'TEST': {'title': '✅ テスト通知：監視は正常に動作しています', 'price': 'Mac miniが出品されたらここに通知が届きます', 'url': 'https://www.apple.com/jp/shop/refurbished/mac/mac-mini'}})"
 
       - name: Run checker
         env:

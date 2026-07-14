@@ -12,6 +12,7 @@ import urllib.request
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 URL = "https://www.apple.com/jp/shop/refurbished/mac/mac-mini"
+MENTION_USER_ID = "1028502587311403008"  # 通知時にメンションするDiscordユーザー
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -70,7 +71,7 @@ def notify_discord(new_items):
         }
         for item in new_items.values()
     ]
-    payload_base = {"content": "🖥️ **整備済Mac miniが出品されました！**"}
+    payload_base = {"content": f"<@{MENTION_USER_ID}> 🖥️ **整備済Mac miniが出品されました！**"}
     # Discordのembedは1メッセージ10件まで
     for i in range(0, len(embeds), 10):
         payload = dict(payload_base, embeds=embeds[i : i + 10])

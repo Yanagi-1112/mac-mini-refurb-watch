@@ -1,4 +1,4 @@
-name: Check refurbished Mac mini
+name: Check refurbished Mac mini / MacBook Air (US)
 
 on:
   schedule:
@@ -32,7 +32,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          python -c "import check; check.notify_discord({'TEST': {'title': '✅ テスト通知：監視は正常に動作しています', 'price': 'Mac miniが出品されたらここに通知が届きます', 'url': 'https://www.apple.com/jp/shop/refurbished/mac/mac-mini'}})"
+          python -c "import check; check.notify_discord({'TEST': {'title': '✅ テスト通知：監視は正常に動作しています', 'price': 'Mac mini／USキーボードのMacBook Airが出品されたらここに通知が届きます', 'url': 'https://www.apple.com/jp/shop/refurbished/mac'}}, '✅ **テスト通知**')"
 
       - name: Run checker
         env:

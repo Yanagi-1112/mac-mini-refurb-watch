@@ -2,7 +2,7 @@ name: Check refurbished Mac mini / MacBook Air (US)
 
 on:
   schedule:
-    - cron: "*/30 * * * *" # 30分ごと（GitHub側の負荷で数分〜十数分遅れることあり）
+    - cron: "*/5 * * * *" # 5分ごと（GitHub側の負荷で数分〜十数分遅れることあり）
   workflow_dispatch:
     inputs:
       test_notify:

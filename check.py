@@ -1,4 +1,8 @@
-"""Apple整備済製品ページを監視し、Mac miniの新着をDiscordに通知する。
+"""Apple整備済製品ページを監視し、新着をDiscordに通知する。
+
+監視対象:
+  - Mac mini（全モデル）
+  - MacBook Air（USキーボード搭載モデルのみ）
 
 DISCORD_WEBHOOK_URL 未設定時はドライラン（通知内容を標準出力に表示するだけ）。
 """
@@ -11,7 +15,6 @@ import urllib.request
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-URL = "https://www.apple.com/jp/shop/refurbished/mac/mac-mini"
 MENTION_USER_ID = "1028502587311403008"  # 通知時にメンションするDiscordユーザー
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
 UA = (
@@ -19,30 +22,62 @@ UA = (
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 )
 
+# 「USキーボード」「英語（米国）キーボード」「ＵＳキーボード」などの表記ゆれを拾う
+US_KEYBOARD_RE = re.compile(r"(US|ＵＳ|英語|米国)[^、。]{0,12}キーボード", re.IGNORECASE)
 
-def fetch_tiles():
-    req = urllib.request.Request(URL, headers={"User-Agent": UA})
+
+def tile_model(tile):
+    return tile.get("filters", {}).get("dimensions", {}).get("refurbClearModel", "")
+
+
+def is_mac_mini(tile):
+    return tile_model(tile) == "macmini" or "Mac mini" in tile.get("title", "")
+
+
+def is_macbook_air_us(tile):
+    if tile_model(tile) != "macbookair" and "MacBook Air" not in tile.get("title", ""):
+        return False
+    # キーボード種別はタイトル以外（filters等）に入ることもあるのでタイル全体から探す
+    return bool(US_KEYBOARD_RE.search(json.dumps(tile, ensure_ascii=False)))
+
+
+WATCHES = [
+    {
+        "name": "Mac mini",
+        "url": "https://www.apple.com/jp/shop/refurbished/mac/mac-mini",
+        "header": "🖥️ **整備済Mac miniが出品されました！**",
+        "matches": is_mac_mini,
+    },
+    {
+        "name": "MacBook Air (USキーボード)",
+        "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-air",
+        "header": "⌨️ **USキーボードの整備済MacBook Airが出品されました！**",
+        "matches": is_macbook_air_us,
+    },
+]
+
+
+def fetch_tiles(url):
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=30) as res:
         html = res.read().decode("utf-8")
     m = re.search(r"window\.REFURB_GRID_BOOTSTRAP = (\{.*\})", html)
     if not m:
-        print("ERROR: REFURB_GRID_BOOTSTRAP not found (page layout changed?)", file=sys.stderr)
+        print(f"ERROR: REFURB_GRID_BOOTSTRAP not found at {url} (page layout changed?)", file=sys.stderr)
         sys.exit(1)
     data = json.loads(m.group(1))
     return data.get("tiles") or []
 
 
-def extract_minis(tiles):
+def extract_items(tiles, matches):
     items = {}
     for t in tiles:
-        model = t.get("filters", {}).get("dimensions", {}).get("refurbClearModel", "")
-        title = t.get("title", "")
-        if model != "macmini" and "Mac mini" not in title:
+        if not matches(t):
             continue
-        part = t.get("partNumber") or title
+        part = t.get("partNumber") or t.get("title", "")
         url = "https://www.apple.com" + t.get("productDetailsUrl", "").split("?")[0]
         price = t.get("price", {}).get("currentPrice", {}).get("amount", "?")
-        items[part] = {"title": title, "price": price, "url": url}
+        items[part] = {"title": t.get("title", ""), "price": price, "url": url}
     return items
 
 
@@ -60,7 +95,7 @@ def save_state(items):
         f.write("\n")
 
 
-def notify_discord(new_items):
+def notify_discord(new_items, header="🖥️ **整備済Mac miniが出品されました！**"):
     webhook = os.environ.get("DISCORD_WEBHOOK_URL")
     embeds = [
         {
@@ -71,7 +106,7 @@ def notify_discord(new_items):
         }
         for item in new_items.values()
     ]
-    payload_base = {"content": f"<@{MENTION_USER_ID}> 🖥️ **整備済Mac miniが出品されました！**"}
+    payload_base = {"content": f"<@{MENTION_USER_ID}> {header}"}
     # Discordのembedは1メッセージ10件まで
     for i in range(0, len(embeds), 10):
         payload = dict(payload_base, embeds=embeds[i : i + 10])
@@ -91,14 +126,22 @@ def notify_discord(new_items):
 
 
 def main():
-    tiles = fetch_tiles()
-    current = extract_minis(tiles)
-    previous = load_state()
-    new_items = {k: v for k, v in current.items() if k not in previous}
+    # 先に全ページを取得（途中で失敗した場合に通知だけ飛んでstateが残らない事故を防ぐ）
+    pages = {}
+    for w in WATCHES:
+        if w["url"] not in pages:
+            pages[w["url"]] = fetch_tiles(w["url"])
 
-    print(f"tiles: {len(tiles)}, Mac mini: {len(current)}, new: {len(new_items)}")
-    if new_items:
-        notify_discord(new_items)
+    previous = load_state()
+    current = {}
+    for w in WATCHES:
+        tiles = pages[w["url"]]
+        items = extract_items(tiles, w["matches"])
+        new_items = {k: v for k, v in items.items() if k not in previous}
+        print(f"{w['name']}: tiles: {len(tiles)}, hit: {len(items)}, new: {len(new_items)}")
+        current.update(items)
+        if new_items:
+            notify_discord(new_items, w["header"])
     save_state(current)
 
 

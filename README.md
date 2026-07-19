@@ -1,6 +1,9 @@
 # mac-mini-refurb-watch
 
-Apple公式の[整備済製品ページ](https://www.apple.com/jp/shop/refurbished/mac/mac-mini)を30分ごとにチェックして、**Mac miniが出品されたらDiscordに通知**します。
+Apple公式の[整備済製品ページ](https://www.apple.com/jp/shop/refurbished/mac)を30分ごとにチェックして、以下が出品されたら**Discordに通知**します。
+
+- **Mac mini**（全モデル）
+- **MacBook Air（USキーボード搭載モデルのみ）**
 
 GitHub Actionsで動くので、サーバー不要・完全無料です。
 
@@ -12,8 +15,10 @@ GitHub Actionsで動くので、サーバー不要・完全無料です。
 ```
 GitHub Actions (30分ごとのcron)
   └─ check.py
-       ├─ Appleの整備済製品ページを取得
-       ├─ 埋め込みJSON (REFURB_GRID_BOOTSTRAP) からMac miniを抽出
+       ├─ Appleの整備済製品ページ（Mac mini / MacBook Air）を取得
+       ├─ 埋め込みJSON (REFURB_GRID_BOOTSTRAP) から監視対象を抽出
+       │    ├─ Mac mini：全モデル
+       │    └─ MacBook Air：タイトル等に「USキーボード」「英語（米国）キーボード」等を含むもの
        ├─ state.json（前回の出品リスト）と比較
        ├─ 新着があれば Discord Webhook に通知
        └─ state.json を更新してリポジトリにコミット
@@ -44,8 +49,8 @@ gh secret set DISCORD_WEBHOOK_URL --body "https://discord.com/api/webhooks/..."
 
 ### 4. 動作確認
 
-Actionsタブ → **Check refurbished Mac mini** → **Run workflow** で手動実行。
-ログに `tiles: NNN, Mac mini: N, new: N` と出れば動いています。
+Actionsタブ → **Check refurbished Mac mini / MacBook Air (US)** → **Run workflow** で手動実行。
+ログに `Mac mini: tiles: NNN, hit: N, new: N` のような行が監視対象ごとに出れば動いています。
 
 ## ローカルでの動作確認
 
@@ -57,4 +62,6 @@ python check.py                 # DISCORD_WEBHOOK_URL 未設定ならドライ�
 
 - GitHub Actionsのcronは負荷状況で数分〜十数分遅れることがあります。
 - **リポジトリに60日間コミットがないと、GitHubがスケジュール実行を自動停止します**（メールが来るのでActionsタブから再有効化すればOK）。在庫変動があるたびに `state.json` がコミットされるので、実際にはほぼ止まりません。
-- 監視対象を変えたい場合は `check.py` の `URL` と `extract_minis()` のフィルタ（`refurbClearModel`）を変更してください（例：`macstudio`, `macbookair` など）。
+- 監視対象を増やしたい場合は `check.py` の `WATCHES` にエントリを追加してください（`url` とタイル判定関数のペア。モデル判別は `refurbClearModel`。例：`macstudio`, `macbookpro` など）。
+- USキーボードのMacBook Airは、整備済製品ページのタイル情報（タイトル等）に「USキーボード」「英語（米国）キーボード」などの表記が含まれることを前提に判定しています。US配列の出品自体が非常に稀なため、表記のされ方が想定と異なる可能性があります。出品を見つけたのに通知が来なかった場合は、そのときのタイル表記を教えてもらえれば判定パターンを直せます。
+- 通知周期はGitHub Actionsのcron（`.github/workflows/check.yml`）で30分に設定しています。Privateリポジトリのままでは無料枠（月2,000分）の都合でこれより短くできません（リポジトリをPublicにすれば5分ごとまで短縮可能）。

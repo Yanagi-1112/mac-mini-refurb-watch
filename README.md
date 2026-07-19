@@ -1,6 +1,6 @@
 # mac-mini-refurb-watch
 
-Apple公式の[整備済製品ページ](https://www.apple.com/jp/shop/refurbished/mac)を30分ごとにチェックして、以下が出品されたら**Discordに通知**します。
+Apple公式の[整備済製品ページ](https://www.apple.com/jp/shop/refurbished/mac)を5分ごとにチェックして、以下が出品されたら**Discordに通知**します。
 
 - **Mac mini**（全モデル）
 - **MacBook Air（USキーボード搭載モデルのみ）**
@@ -13,7 +13,7 @@ GitHub Actionsで動くので、サーバー不要・完全無料です。
 ## 仕組み
 
 ```
-GitHub Actions (30分ごとのcron)
+GitHub Actions (5分ごとのcron)
   └─ check.py
        ├─ Appleの整備済製品ページ（Mac mini / MacBook Air）を取得
        ├─ 埋め込みJSON (REFURB_GRID_BOOTSTRAP) から監視対象を抽出
@@ -64,4 +64,4 @@ python check.py                 # DISCORD_WEBHOOK_URL 未設定ならドライ�
 - **リポジトリに60日間コミットがないと、GitHubがスケジュール実行を自動停止します**（メールが来るのでActionsタブから再有効化すればOK）。在庫変動があるたびに `state.json` がコミットされるので、実際にはほぼ止まりません。
 - 監視対象を増やしたい場合は `check.py` の `WATCHES` にエントリを追加してください（`url` とタイル判定関数のペア。モデル判別は `refurbClearModel`。例：`macstudio`, `macbookpro` など）。
 - USキーボードのMacBook Airは、まず一覧タイル内の表記を確認し、判定できない場合だけ商品詳細ページを取得して判定します。結果はpartNumberごとに期限なしでキャッシュするため、同じ製品の詳細ページを繰り返し取得しません。詳細ページの取得に失敗した場合や「キーボード」の表記が見つからない場合は通知せず、キャッシュにも残さず次回に再試行します。
-- 通知周期はGitHub Actionsのcron（`.github/workflows/check.yml`）で30分に設定しています。Privateリポジトリのままでは無料枠（月2,000分）の都合でこれより短くできません（リポジトリをPublicにすれば5分ごとまで短縮可能）。
+- 通知周期はGitHub Actionsのcron（`.github/workflows/check.yml`）で5分に設定しています。publicリポジトリなのでActionsは無料・無制限です（Privateに戻す場合は無料枠の都合で30分以上に戻すこと）。

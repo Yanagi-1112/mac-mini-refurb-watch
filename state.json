@@ -1,5 +1,11 @@
 {
-  "items": {},
+  "items": {
+    "G1CFAJ/A": {
+      "price": "175,800円",
+      "title": "Mac mini [整備済製品] 10コアCPUと10コアGPUを搭載したApple M4チップ、ギガビットEthernet",
+      "url": "https://www.apple.com/jp/shop/product/g1cfaj/a/Mac-mini-%E6%95%B4%E5%82%99%E6%B8%88%E8%A3%BD%E5%93%81-10%E3%82%B3%E3%82%A2CPU%E3%81%A810%E3%82%B3%E3%82%A2GPU%E3%82%92%E6%90%AD%E8%BC%89%E3%81%97%E3%81%9FApple-M4%E3%83%81%E3%83%83%E3%83%97%E3%82%AE%E3%82%AC%E3%83%93%E3%83%83%E3%83%88Ethernet"
+    }
+  },
   "kb": {
     "FC654J/A": false,
     "FC6A4J/A": false,

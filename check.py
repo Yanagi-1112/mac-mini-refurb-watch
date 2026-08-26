@@ -1,8 +1,11 @@
 """Apple整備済製品ページを監視し、新着をDiscordに通知する。
 
 監視対象:
-  - Mac mini（全モデル）
   - MacBook Air（USキーボード搭載モデルのみ）
+  - MacBook Pro（USキーボード搭載モデルのみ）
+
+Mac mini監視は2026-08-26に停止（M6搭載の新型が発売され整備済品を待つ必要がなくなったため）。
+復活させる場合はgit履歴の is_mac_mini と WATCHES のMac miniエントリを参照。
 
 DISCORD_WEBHOOK_URL 未設定時はドライラン（通知内容を標準出力に表示するだけ）。
 """
@@ -32,8 +35,11 @@ def tile_model(tile):
     return tile.get("filters", {}).get("dimensions", {}).get("refurbClearModel", "")
 
 
-def is_mac_mini(tile, kb_cache=None):
-    return tile_model(tile) == "macmini" or "Mac mini" in tile.get("title", "")
+def is_macbook(tile):
+    # MacBook Air / MacBook Pro のタイルか（"MacBook" はAir/Pro両方のタイトルに含まれる）
+    return tile_model(tile) in ("macbookair", "macbookpro") or "MacBook" in tile.get(
+        "title", ""
+    )
 
 
 def fetch_product_page(url):
@@ -42,8 +48,8 @@ def fetch_product_page(url):
         return res.read().decode("utf-8")
 
 
-def is_macbook_air_us(tile, kb_cache):
-    if tile_model(tile) != "macbookair" and "MacBook Air" not in tile.get("title", ""):
+def is_macbook_us(tile, kb_cache):
+    if not is_macbook(tile):
         return False
     part = tile.get("partNumber")
     # 将来タイル側にキーボード情報が追加された場合は、詳細ページを取得せず判定する
@@ -79,16 +85,16 @@ def is_macbook_air_us(tile, kb_cache):
 
 WATCHES = [
     {
-        "name": "Mac mini",
-        "url": "https://www.apple.com/jp/shop/refurbished/mac/mac-mini",
-        "header": "🖥️ **整備済Mac miniが出品されました！**",
-        "matches": is_mac_mini,
-    },
-    {
         "name": "MacBook Air (USキーボード)",
         "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-air",
         "header": "⌨️ **USキーボードの整備済MacBook Airが出品されました！**",
-        "matches": is_macbook_air_us,
+        "matches": is_macbook_us,
+    },
+    {
+        "name": "MacBook Pro (USキーボード)",
+        "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-pro",
+        "header": "💻 **USキーボードの整備済MacBook Proが出品されました！**",
+        "matches": is_macbook_us,
     },
 ]
 
@@ -110,10 +116,9 @@ def extract_items(tiles, matches, kb_cache):
     fetched_detail = False
     for t in tiles:
         part = t.get("partNumber")
-        is_air = tile_model(t) == "macbookair" or "MacBook Air" in t.get("title", "")
         needs_detail = (
-            matches is is_macbook_air_us
-            and is_air
+            matches is is_macbook_us
+            and is_macbook(t)
             and bool(part)
             and part not in kb_cache
             and not US_KEYBOARD_RE.search(json.dumps(t, ensure_ascii=False))
@@ -150,7 +155,7 @@ def save_state(state):
         f.write("\n")
 
 
-def notify_discord(new_items, header="🖥️ **整備済Mac miniが出品されました！**"):
+def notify_discord(new_items, header):
     webhook = os.environ.get("DISCORD_WEBHOOK_URL")
     embeds = [
         {

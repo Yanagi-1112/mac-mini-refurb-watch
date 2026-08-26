@@ -34,7 +34,18 @@ def air_tile(part="FDH74J/A", title="13インチMacBook Air"):
     }
 
 
+def pro_tile(part="TEST2J/A", title="14インチMacBook Pro"):
+    return {
+        "partNumber": part,
+        "productDetailsUrl": "/jp/shop/product/test2j/a?fnode=example",
+        "title": title,
+        "price": {"currentPrice": {"amount": "248,800円（税込）"}},
+        "filters": {"dimensions": {"refurbClearModel": "macbookpro"}},
+    }
+
+
 def mini_tile(part="TEST1J/A"):
+    # Mac mini監視は停止済み。マッチしないことの確認用に残している
     return {
         "partNumber": part,
         "productDetailsUrl": "/jp/shop/product/test1j/a?fnode=example",
@@ -50,7 +61,7 @@ class KeyboardDetectionTests(unittest.TestCase):
         kb = {}
 
         with mock.patch("check.fetch_product_page") as fetch_product_page:
-            result = check.is_macbook_air_us(tile, kb)
+            result = check.is_macbook_us(tile, kb)
 
         self.assertTrue(result)
         self.assertTrue(kb[tile["partNumber"]])
@@ -63,7 +74,7 @@ class KeyboardDetectionTests(unittest.TestCase):
         with mock.patch("check.time.sleep"), mock.patch(
             "check.urllib.request.urlopen", return_value=MockResponse(html)
         ) as urlopen:
-            result = check.is_macbook_air_us(tile, kb := {})
+            result = check.is_macbook_us(tile, kb := {})
 
         self.assertFalse(result)
         self.assertIs(kb[tile["partNumber"]], False)
@@ -79,7 +90,7 @@ class KeyboardDetectionTests(unittest.TestCase):
         with mock.patch("check.time.sleep"), mock.patch(
             "check.urllib.request.urlopen", return_value=MockResponse(html)
         ):
-            result = check.is_macbook_air_us(tile, kb := {})
+            result = check.is_macbook_us(tile, kb := {})
 
         self.assertTrue(result)
         self.assertIs(kb[tile["partNumber"]], True)
@@ -88,7 +99,7 @@ class KeyboardDetectionTests(unittest.TestCase):
         tile = air_tile()
 
         with mock.patch("check.fetch_product_page") as fetch_product_page:
-            result = check.is_macbook_air_us(tile, {tile["partNumber"]: False})
+            result = check.is_macbook_us(tile, {tile["partNumber"]: False})
 
         self.assertFalse(result)
         fetch_product_page.assert_not_called()
@@ -102,7 +113,7 @@ class KeyboardDetectionTests(unittest.TestCase):
             "check.urllib.request.urlopen", side_effect=URLError("offline")
         ):
             with redirect_stderr(stderr):
-                items = check.extract_items([tile], check.is_macbook_air_us, kb)
+                items = check.extract_items([tile], check.is_macbook_us, kb)
 
         self.assertEqual(items, {})
         self.assertNotIn(tile["partNumber"], kb)
@@ -118,11 +129,41 @@ class KeyboardDetectionTests(unittest.TestCase):
             "check.urllib.request.urlopen", return_value=MockResponse(html)
         ):
             with redirect_stderr(stderr):
-                items = check.extract_items([tile], check.is_macbook_air_us, kb)
+                items = check.extract_items([tile], check.is_macbook_us, kb)
 
         self.assertEqual(items, {})
         self.assertNotIn(tile["partNumber"], kb)
         self.assertTrue(stderr.getvalue())
+
+    def test_pro_us_detail_is_us_and_is_cached(self):
+        tile = pro_tile()
+        html = "<html>US配列準拠キーボードを搭載</html>"
+
+        with mock.patch("check.time.sleep"), mock.patch(
+            "check.urllib.request.urlopen", return_value=MockResponse(html)
+        ):
+            result = check.is_macbook_us(tile, kb := {})
+
+        self.assertTrue(result)
+        self.assertIs(kb[tile["partNumber"]], True)
+
+    def test_pro_tile_us_label_uses_fast_path_without_detail_request(self):
+        tile = pro_tile(title="14インチMacBook Pro - USキーボード")
+
+        with mock.patch("check.fetch_product_page") as fetch_product_page:
+            result = check.is_macbook_us(tile, {})
+
+        self.assertTrue(result)
+        fetch_product_page.assert_not_called()
+
+    def test_mac_mini_does_not_match_and_skips_detail_request(self):
+        tile = mini_tile()
+
+        with mock.patch("check.fetch_product_page") as fetch_product_page:
+            result = check.is_macbook_us(tile, {})
+
+        self.assertFalse(result)
+        fetch_product_page.assert_not_called()
 
     def test_multiple_detail_requests_sleep_once_between_requests(self):
         tiles = [air_tile("FIRSTJ/A"), air_tile("SECONDJ/A")]
@@ -134,7 +175,7 @@ class KeyboardDetectionTests(unittest.TestCase):
         with mock.patch("check.time.sleep") as sleep, mock.patch(
             "check.urllib.request.urlopen", side_effect=responses
         ):
-            items = check.extract_items(tiles, check.is_macbook_air_us, {})
+            items = check.extract_items(tiles, check.is_macbook_us, {})
 
         sleep.assert_called_once_with(1)
         self.assertEqual(set(items), {"SECONDJ/A"})
@@ -158,12 +199,12 @@ class StateTests(unittest.TestCase):
         self.assertEqual(loaded, state)
 
     def test_load_legacy_state_and_main_does_not_renotify_existing_item(self):
-        tile = mini_tile()
+        tile = air_tile(title="13インチMacBook Air - USキーボード")
         old_items = {
             tile["partNumber"]: {
                 "title": tile["title"],
                 "price": tile["price"]["currentPrice"]["amount"],
-                "url": "https://www.apple.com/jp/shop/product/test1j/a",
+                "url": "https://www.apple.com/jp/shop/product/fdh74j/a",
             }
         }
 
@@ -183,7 +224,38 @@ class StateTests(unittest.TestCase):
                     saved = json.load(f)
 
         self.assertEqual(saved["items"], old_items)
-        self.assertEqual(saved["kb"], {})
+        # USラベル付きタイルはfast pathでkbにキャッシュされる
+        self.assertEqual(saved["kb"], {tile["partNumber"]: True})
+
+    def test_mac_mini_in_old_state_is_dropped_without_notification(self):
+        # 監視停止したMac miniが旧stateに残っていても、通知されず次回保存で消えること
+        mini = mini_tile()
+        old_state = {
+            "items": {
+                mini["partNumber"]: {
+                    "title": mini["title"],
+                    "price": mini["price"]["currentPrice"]["amount"],
+                    "url": "https://www.apple.com/jp/shop/product/test1j/a",
+                }
+            },
+            "kb": {},
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = os.path.join(temp_dir, "state.json")
+            with open(state_file, "w", encoding="utf-8") as f:
+                json.dump(old_state, f, ensure_ascii=False)
+
+            with mock.patch.object(check, "STATE_FILE", state_file):
+                with mock.patch("check.fetch_tiles", side_effect=[[], []]):
+                    with mock.patch("check.notify_discord") as notify:
+                        check.main()
+
+                notify.assert_not_called()
+                with open(state_file, encoding="utf-8") as f:
+                    saved = json.load(f)
+
+        self.assertEqual(saved["items"], {})
 
 
 if __name__ == "__main__":

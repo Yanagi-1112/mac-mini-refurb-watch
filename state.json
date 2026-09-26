@@ -1,4 +1,29 @@
 {
   "items": {},
-  "kb": {}
+  "kb": {
+    "FDE34J/A": "jis",
+    "FDE64J/A": "jis",
+    "FGDN4J/A": "jis",
+    "FGDP4J/A": "jis",
+    "FGDQ4J/A": "jis",
+    "FGDT4J/A": "jis",
+    "FGDU4J/A": "jis",
+    "G1KK4J/A": "jis",
+    "G1KKAJ/A": "jis",
+    "G1KN2J/A": "jis",
+    "G1KN5J/A": "jis",
+    "G1KN7J/A": "jis",
+    "G1KNAJ/A": "jis",
+    "G1MH3J/A": "jis",
+    "G1MHAJ/A": "jis",
+    "G1MK3J/A": "jis",
+    "G1MK8J/A": "jis",
+    "G1MK9J/A": "jis",
+    "G1MLAJ/A": "jis",
+    "G1MM3J/A": "jis",
+    "G1MMAJ/A": "jis",
+    "G1MN0J/A": "jis",
+    "G1MN7J/A": "jis",
+    "G1MN8J/A": "jis"
+  }
 }

@@ -1,9 +1,9 @@
 """Apple整備済製品ページを監視し、新着をDiscordに通知する。
 
 監視対象:
-  共通条件: 13インチ・メモリ24GB以上
-  - MacBook Air（US・JISキーボード搭載モデル）
-  - MacBook Pro（USキーボード搭載モデルのみ）
+  共通条件: M5以降・メモリ24GB以上
+  - 13インチMacBook Air（US・JISキーボード搭載モデル）
+  - 14インチMacBook Pro（USキーボード搭載モデルのみ）
 
 Mac mini監視は2026-08-26に停止（M6搭載の新型が発売され整備済品を待つ必要がなくなったため）。
 復活させる場合はgit履歴の is_mac_mini と WATCHES のMac miniエントリを参照。
@@ -120,10 +120,21 @@ def matches_specs(tile):
     dimensions = tile.get("filters", {}).get("dimensions", {})
     screen = str(dimensions.get("dimensionScreensize", "")).strip().lower()
     memory = str(dimensions.get("tsMemorySize", "")).strip().lower()
-    # Appleの13インチカテゴリ（13.3/13.6インチを含む）だけを対象にする。
+    # Airは13インチカテゴリ（13.3/13.6）、Proは14インチ（14.2）を対象にする。
     # SSD容量からメモリを推測せず、仕様不明の商品も除外する。
+    if matches_model(tile, "macbookair"):
+        size = "13"
+    elif matches_model(tile, "macbookpro"):
+        size = "14"
+    else:
+        return False
     ram = re.fullmatch(r"(\d+)\s*gb", memory)
-    return bool(re.fullmatch(r"13(?:\.\d+)?\s*inch", screen) and ram and int(ram[1]) >= 24)
+    chip = re.search(r"\bM(\d+)(?:\s+(?:Pro|Max|Ultra))?\s*チップ", tile.get("title", ""))
+    return bool(
+        re.fullmatch(rf"{size}(?:\.\d+)?\s*inch", screen)
+        and ram and int(ram[1]) >= 24
+        and chip and int(chip[1]) >= 5
+    )
 
 
 WATCHES = [
@@ -131,21 +142,21 @@ WATCHES = [
         "name": "MacBook Air (USキーボード)",
         "model": "macbookair",
         "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-air",
-        "header": "⌨️ **13インチ・メモリ24GB以上・USキーボードの整備済MacBook Airが出品されました！**",
+        "header": "⌨️ **13インチ・M5以降・メモリ24GB以上・USキーボードの整備済MacBook Airが出品されました！**",
         "matches": is_macbook_us,
     },
     {
         "name": "MacBook Air (JISキーボード)",
         "model": "macbookair",
         "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-air",
-        "header": "⌨️ **13インチ・メモリ24GB以上・JISキーボードの整備済MacBook Airが出品されました！**",
+        "header": "⌨️ **13インチ・M5以降・メモリ24GB以上・JISキーボードの整備済MacBook Airが出品されました！**",
         "matches": is_macbook_jis,
     },
     {
         "name": "MacBook Pro (USキーボード)",
         "model": "macbookpro",
         "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-pro",
-        "header": "💻 **13インチ・メモリ24GB以上・USキーボードの整備済MacBook Proが出品されました！**",
+        "header": "💻 **14インチ・M5以降・メモリ24GB以上・USキーボードの整備済MacBook Proが出品されました！**",
         "matches": is_macbook_us,
     },
 ]

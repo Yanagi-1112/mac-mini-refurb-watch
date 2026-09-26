@@ -28,19 +28,19 @@ def air_tile(part="FDH74J/A", title="13インチMacBook Air"):
     return {
         "partNumber": part,
         "productDetailsUrl": "/jp/shop/product/fdh74j/a?fnode=example",
-        "title": title,
+        "title": title + " Apple M5チップ",
         "price": {"currentPrice": {"amount": "123,800円（税込）"}},
         "filters": {"dimensions": {"refurbClearModel": "macbookair", "dimensionScreensize": "13inch", "tsMemorySize": "24gb"}},
     }
 
 
-def pro_tile(part="TEST2J/A", title="13インチMacBook Pro"):
+def pro_tile(part="TEST2J/A", title="14インチMacBook Pro"):
     return {
         "partNumber": part,
         "productDetailsUrl": "/jp/shop/product/test2j/a?fnode=example",
-        "title": title,
+        "title": title + " Apple M5チップ",
         "price": {"currentPrice": {"amount": "248,800円（税込）"}},
-        "filters": {"dimensions": {"refurbClearModel": "macbookpro", "dimensionScreensize": "13inch", "tsMemorySize": "24gb"}},
+        "filters": {"dimensions": {"refurbClearModel": "macbookpro", "dimensionScreensize": "14inch", "tsMemorySize": "24gb"}},
     }
 
 
@@ -209,19 +209,29 @@ class KeyboardDetectionTests(unittest.TestCase):
 
 
 class SpecificationTests(unittest.TestCase):
-    def test_only_13_inch_with_at_least_24gb_matches(self):
-        for screen in ("13inch", "13.3inch", "13.6inch", "14inch", "15inch", "16inch", None):
-            for memory in ("8gb", "16gb", "24gb", "32gb", "64gb", None, "unknown"):
-                tile = air_tile()
-                tile["filters"]["dimensions"].update(dimensionScreensize=screen, tsMemorySize=memory)
-                expected = screen in ("13inch", "13.3inch", "13.6inch") and memory in ("24gb", "32gb", "64gb")
-                with self.subTest(screen=screen, memory=memory):
+    def test_model_screen_and_memory_boundaries(self):
+        for factory, accepted in ((air_tile, ("13inch", "13.3inch", "13.6inch")), (pro_tile, ("14inch", "14.2inch"))):
+            for screen in ("13inch", "13.3inch", "13.6inch", "14inch", "14.2inch", "15inch", "16inch", None):
+                for memory in ("8gb", "16gb", "24gb", "32gb", "64gb", None, "unknown"):
+                    tile = factory()
+                    tile["filters"]["dimensions"].update(dimensionScreensize=screen, tsMemorySize=memory)
+                    expected = screen in accepted and memory in ("24gb", "32gb", "64gb")
+                    with self.subTest(model=factory.__name__, screen=screen, memory=memory):
+                        self.assertEqual(check.matches_specs(tile), expected)
+
+    def test_m5_or_later_including_pro_max_and_future_generations(self):
+        for factory in (air_tile, pro_tile):
+            for chip, expected in (("M1", False), ("M4", False), ("M4 Max", False), ("M5", True), ("M5 Pro", True), ("M5 Max", True), ("M6", True), ("M10", True), ("Intel", False), ("", False)):
+                tile = factory()
+                tile["title"] = f"MacBook Apple {chip}チップ"
+                with self.subTest(model=factory.__name__, chip=chip):
                     self.assertEqual(check.matches_specs(tile), expected)
 
     def test_rejected_specs_never_fetch_detail_or_notify_for_air_and_pro(self):
         tiles = []
         for factory in (air_tile, pro_tile):
-            for screen, memory in (("13inch", "16gb"), ("14inch", "24gb"), ("15inch", "32gb"), ("16inch", "64gb"), ("13inch", None)):
+            wrong_size = "14inch" if factory is air_tile else "13inch"
+            for screen, memory in (("13inch", "16gb"), (wrong_size, "24gb"), ("15inch", "32gb"), ("16inch", "64gb"), ("13inch", None)):
                 tile = factory()
                 tile["filters"]["dimensions"].update(dimensionScreensize=screen, tsMemorySize=memory)
                 tiles.append(tile)

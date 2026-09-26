@@ -257,7 +257,7 @@ class StateTests(unittest.TestCase):
                 self.assertTrue(check.is_macbook_jis(air_tile(), kb))
                 fetch.assert_called_once()
 
-    def test_mixed_catalog_notifies_only_air_us_jis_and_pro_us_once(self):
+    def test_mixed_catalog_notifies_air_and_pro_us_jis_once(self):
         air_us = air_tile("AIR_US", "MacBook Air - USキーボード")
         air_jis = air_tile("AIR_JIS", "MacBook Air - JISキーボード")
         pro_us = pro_tile("PRO_US", "MacBook Pro - USキーボード")
@@ -267,9 +267,11 @@ class StateTests(unittest.TestCase):
             with mock.patch("check.fetch_tiles", return_value=tiles) as fetch, mock.patch("check.notify_discord") as notify:
                 check.main()
                 self.assertEqual(fetch.call_count, 2)
-                self.assertEqual([set(c.args[0]) for c in notify.call_args_list], [{"AIR_US"}, {"AIR_JIS"}, {"PRO_US"}])
+                self.assertEqual([set(c.args[0]) for c in notify.call_args_list], [{"AIR_US"}, {"AIR_JIS"}, {"PRO_US"}, {"PRO_JIS"}])
                 self.assertIn("JIS", notify.call_args_list[1].args[1])
-                self.assertEqual(set(check.load_state()["items"]), {"AIR_US", "AIR_JIS", "PRO_US"})
+                self.assertIn("JIS", notify.call_args_list[3].args[1])
+                self.assertIn("MacBook Pro", notify.call_args_list[3].args[1])
+                self.assertEqual(set(check.load_state()["items"]), {"AIR_US", "AIR_JIS", "PRO_US", "PRO_JIS"})
                 notify.reset_mock()
                 check.main()
                 notify.assert_not_called()
@@ -279,8 +281,7 @@ class StateTests(unittest.TestCase):
                 notify.assert_not_called()
                 fetch.return_value = tiles
                 check.main()
-                notify.assert_called_once()
-                self.assertEqual(set(notify.call_args.args[0]), {"AIR_JIS"})
+                self.assertEqual([set(c.args[0]) for c in notify.call_args_list], [{"AIR_JIS"}, {"PRO_JIS"}])
 
     def test_load_new_state_keeps_items_and_keyboard_cache(self):
         state = {

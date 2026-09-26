@@ -3,7 +3,7 @@
 監視対象:
   共通条件: M5以降・メモリ24GB以上
   - 13インチMacBook Air（US・JISキーボード搭載モデル）
-  - 14インチMacBook Pro（USキーボード搭載モデルのみ）
+  - 14インチMacBook Pro（US・JISキーボード搭載モデル）
 
 Mac mini監視は2026-08-26に停止（M6搭載の新型が発売され整備済品を待つ必要がなくなったため）。
 復活させる場合はgit履歴の is_mac_mini と WATCHES のMac miniエントリを参照。
@@ -158,6 +158,13 @@ WATCHES = [
         "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-pro",
         "header": "💻 **14インチ・M5以降・メモリ24GB以上・USキーボードの整備済MacBook Proが出品されました！**",
         "matches": is_macbook_us,
+    },
+    {
+        "name": "MacBook Pro (JISキーボード)",
+        "model": "macbookpro",
+        "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-pro",
+        "header": "💻 **14インチ・M5以降・メモリ24GB以上・JISキーボードの整備済MacBook Proが出品されました！**",
+        "matches": is_macbook_jis,
     },
 ]
 

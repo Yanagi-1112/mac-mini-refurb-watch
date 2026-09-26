@@ -1,4 +1,4 @@
-name: Check refurbished MacBook Air (US/JIS) / Pro (US)
+name: Check refurbished MacBook Air (US/JIS) / Pro (US/JIS)
 
 on:
   schedule:
@@ -32,7 +32,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          python -c "import check; check.notify_discord({'TEST': {'title': '✅ テスト通知：監視は正常に動作しています', 'price': 'M5以降・メモリ24GB以上の13インチMacBook Air（US/JIS）または14インチPro（US）が出品されたらここに通知が届きます', 'url': 'https://www.apple.com/jp/shop/refurbished/mac'}}, '✅ **テスト通知**')"
+          python -c "import check; check.notify_discord({'TEST': {'title': '✅ テスト通知：監視は正常に動作しています', 'price': 'M5以降・メモリ24GB以上の13インチMacBook Air（US/JIS）または14インチPro（US/JIS）が出品されたらここに通知が届きます', 'url': 'https://www.apple.com/jp/shop/refurbished/mac'}}, '✅ **テスト通知**')"
 
       - name: Run checker
         env:

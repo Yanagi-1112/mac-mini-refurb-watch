@@ -30,17 +30,17 @@ def air_tile(part="FDH74J/A", title="13インチMacBook Air"):
         "productDetailsUrl": "/jp/shop/product/fdh74j/a?fnode=example",
         "title": title,
         "price": {"currentPrice": {"amount": "123,800円（税込）"}},
-        "filters": {"dimensions": {"refurbClearModel": "macbookair"}},
+        "filters": {"dimensions": {"refurbClearModel": "macbookair", "dimensionScreensize": "13inch", "tsMemorySize": "24gb"}},
     }
 
 
-def pro_tile(part="TEST2J/A", title="14インチMacBook Pro"):
+def pro_tile(part="TEST2J/A", title="13インチMacBook Pro"):
     return {
         "partNumber": part,
         "productDetailsUrl": "/jp/shop/product/test2j/a?fnode=example",
         "title": title,
         "price": {"currentPrice": {"amount": "248,800円（税込）"}},
-        "filters": {"dimensions": {"refurbClearModel": "macbookpro"}},
+        "filters": {"dimensions": {"refurbClearModel": "macbookpro", "dimensionScreensize": "13inch", "tsMemorySize": "24gb"}},
     }
 
 
@@ -206,6 +206,30 @@ class KeyboardDetectionTests(unittest.TestCase):
 
         sleep.assert_called_once_with(1)
         self.assertEqual(set(items), {"SECONDJ/A"})
+
+
+class SpecificationTests(unittest.TestCase):
+    def test_only_13_inch_with_at_least_24gb_matches(self):
+        for screen in ("13inch", "13.3inch", "13.6inch", "14inch", "15inch", "16inch", None):
+            for memory in ("8gb", "16gb", "24gb", "32gb", "64gb", None, "unknown"):
+                tile = air_tile()
+                tile["filters"]["dimensions"].update(dimensionScreensize=screen, tsMemorySize=memory)
+                expected = screen in ("13inch", "13.3inch", "13.6inch") and memory in ("24gb", "32gb", "64gb")
+                with self.subTest(screen=screen, memory=memory):
+                    self.assertEqual(check.matches_specs(tile), expected)
+
+    def test_rejected_specs_never_fetch_detail_or_notify_for_air_and_pro(self):
+        tiles = []
+        for factory in (air_tile, pro_tile):
+            for screen, memory in (("13inch", "16gb"), ("14inch", "24gb"), ("15inch", "32gb"), ("16inch", "64gb"), ("13inch", None)):
+                tile = factory()
+                tile["filters"]["dimensions"].update(dimensionScreensize=screen, tsMemorySize=memory)
+                tiles.append(tile)
+        with mock.patch("check.fetch_tiles", return_value=tiles), mock.patch("check.load_state", return_value={"items": {}, "kb": {}}):
+            with mock.patch("check.fetch_product_page") as detail, mock.patch("check.notify_discord") as notify, mock.patch("check.save_state"):
+                check.main()
+                detail.assert_not_called()
+                notify.assert_not_called()
 
 
 class StateTests(unittest.TestCase):

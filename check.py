@@ -1,6 +1,7 @@
 """Apple整備済製品ページを監視し、新着をDiscordに通知する。
 
 監視対象:
+  共通条件: 13インチ・メモリ24GB以上
   - MacBook Air（US・JISキーボード搭載モデル）
   - MacBook Pro（USキーボード搭載モデルのみ）
 
@@ -115,26 +116,36 @@ def matches_model(tile, model):
     return bool(model_name and model_name in title)
 
 
+def matches_specs(tile):
+    dimensions = tile.get("filters", {}).get("dimensions", {})
+    screen = str(dimensions.get("dimensionScreensize", "")).strip().lower()
+    memory = str(dimensions.get("tsMemorySize", "")).strip().lower()
+    # Appleの13インチカテゴリ（13.3/13.6インチを含む）だけを対象にする。
+    # SSD容量からメモリを推測せず、仕様不明の商品も除外する。
+    ram = re.fullmatch(r"(\d+)\s*gb", memory)
+    return bool(re.fullmatch(r"13(?:\.\d+)?\s*inch", screen) and ram and int(ram[1]) >= 24)
+
+
 WATCHES = [
     {
         "name": "MacBook Air (USキーボード)",
         "model": "macbookair",
         "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-air",
-        "header": "⌨️ **USキーボードの整備済MacBook Airが出品されました！**",
+        "header": "⌨️ **13インチ・メモリ24GB以上・USキーボードの整備済MacBook Airが出品されました！**",
         "matches": is_macbook_us,
     },
     {
         "name": "MacBook Air (JISキーボード)",
         "model": "macbookair",
         "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-air",
-        "header": "⌨️ **JISキーボードの整備済MacBook Airが出品されました！**",
+        "header": "⌨️ **13インチ・メモリ24GB以上・JISキーボードの整備済MacBook Airが出品されました！**",
         "matches": is_macbook_jis,
     },
     {
         "name": "MacBook Pro (USキーボード)",
         "model": "macbookpro",
         "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-pro",
-        "header": "💻 **USキーボードの整備済MacBook Proが出品されました！**",
+        "header": "💻 **13インチ・メモリ24GB以上・USキーボードの整備済MacBook Proが出品されました！**",
         "matches": is_macbook_us,
     },
 ]
@@ -246,7 +257,7 @@ def main():
     current = {}
     for w in WATCHES:
         tiles = pages[w["url"]]
-        model_tiles = [t for t in tiles if matches_model(t, w["model"])]
+        model_tiles = [t for t in tiles if matches_model(t, w["model"]) and matches_specs(t)]
         items = extract_items(model_tiles, w["matches"], kb_cache)
         new_items = {k: v for k, v in items.items() if k not in previous}
         print(f"{w['name']}: tiles: {len(tiles)}, hit: {len(items)}, new: {len(new_items)}")

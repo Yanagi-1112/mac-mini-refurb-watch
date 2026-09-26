@@ -1,7 +1,7 @@
 """Apple整備済製品ページを監視し、新着をDiscordに通知する。
 
 監視対象:
-  - MacBook Air（USキーボード搭載モデルのみ）
+  - MacBook Air（US・JISキーボード搭載モデル）
   - MacBook Pro（USキーボード搭載モデルのみ）
 
 Mac mini監視は2026-08-26に停止（M6搭載の新型が発売され整備済品を待つ必要がなくなったため）。
@@ -29,6 +29,7 @@ UA = (
 # 「USキーボード」「英語（米国）キーボード」「ＵＳキーボード」などの表記ゆれを拾う
 # 大文字小文字を区別する（小文字の us がHTML属性名等に紛れて誤検知するのを防ぐ）
 US_KEYBOARD_RE = re.compile(r"(US|ＵＳ|英語|米国)[^、。]{0,12}キーボード")
+JIS_KEYBOARD_RE = re.compile(r"(JIS|ＪＩＳ|日本語)[^、。]{0,12}キーボード")
 
 
 def tile_model(tile):
@@ -48,50 +49,90 @@ def fetch_product_page(url):
         return res.read().decode("utf-8")
 
 
-def is_macbook_us(tile, kb_cache):
+def keyboard_layout(text):
+    us = bool(US_KEYBOARD_RE.search(text))
+    jis = bool(JIS_KEYBOARD_RE.search(text))
+    # 両方の表記があるページや配列不明の商品は通知しない。
+    if us != jis:
+        return "us" if us else "jis"
+    return None
+
+
+def macbook_keyboard(tile, kb_cache):
     if not is_macbook(tile):
-        return False
+        return None
     part = tile.get("partNumber")
     # 将来タイル側にキーボード情報が追加された場合は、詳細ページを取得せず判定する
-    if US_KEYBOARD_RE.search(json.dumps(tile, ensure_ascii=False)):
+    layout = keyboard_layout(json.dumps(tile, ensure_ascii=False))
+    if layout:
         if part:
-            kb_cache[part] = True
-        return True
+            kb_cache[part] = layout
+        return layout
 
     if not part:
         print("WARNING: partNumberがないためキーボード配列を判定できません", file=sys.stderr)
-        return False
+        return None
     if part in kb_cache:
         return kb_cache[part]
 
+    # 同じ実行内でAirのUS/JIS判定が詳細取得を繰り返さないようにする。
+    # 不明・取得失敗のNoneは保存時に除外し、次回実行で再試行する。
+    kb_cache[part] = None
     path = tile.get("productDetailsUrl", "").split("?")[0]
     url = "https://www.apple.com" + path
     try:
         html = fetch_product_page(url)
     except Exception as e:
         print(f"WARNING: 商品詳細ページの取得に失敗しました ({part}): {e}", file=sys.stderr)
-        return False
-    if "キーボード" not in html:
+        return None
+    layout = keyboard_layout(html)
+    if layout is None:
         print(
-            f"WARNING: 商品詳細ページにキーボード情報がありません ({part})",
+            f"WARNING: 商品詳細ページのキーボード配列を判定できません ({part})",
             file=sys.stderr,
         )
-        return False
+        return None
 
-    is_us = bool(US_KEYBOARD_RE.search(html))
-    kb_cache[part] = is_us
-    return is_us
+    kb_cache[part] = layout
+    return layout
+
+
+def is_macbook_us(tile, kb_cache):
+    return macbook_keyboard(tile, kb_cache) == "us"
+
+
+def is_macbook_jis(tile, kb_cache):
+    return macbook_keyboard(tile, kb_cache) == "jis"
+
+
+def matches_model(tile, model):
+    # Appleの一覧JSONはURLで指定した機種以外も含むため、必ず機種で絞る。
+    actual = tile_model(tile)
+    if actual:
+        return actual == model
+    title = tile.get("title", "")
+    model_name = {"macbookair": "MacBook Air", "macbookpro": "MacBook Pro"}.get(model)
+    return bool(model_name and model_name in title)
 
 
 WATCHES = [
     {
         "name": "MacBook Air (USキーボード)",
+        "model": "macbookair",
         "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-air",
         "header": "⌨️ **USキーボードの整備済MacBook Airが出品されました！**",
         "matches": is_macbook_us,
     },
     {
+        "name": "MacBook Air (JISキーボード)",
+        "model": "macbookair",
+        "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-air",
+        "header": "⌨️ **JISキーボードの整備済MacBook Airが出品されました！**",
+        "matches": is_macbook_jis,
+    },
+    {
         "name": "MacBook Pro (USキーボード)",
+        "model": "macbookpro",
         "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-pro",
         "header": "💻 **USキーボードの整備済MacBook Proが出品されました！**",
         "matches": is_macbook_us,
@@ -117,11 +158,11 @@ def extract_items(tiles, matches, kb_cache):
     for t in tiles:
         part = t.get("partNumber")
         needs_detail = (
-            matches is is_macbook_us
+            matches in (is_macbook_us, is_macbook_jis)
             and is_macbook(t)
             and bool(part)
             and part not in kb_cache
-            and not US_KEYBOARD_RE.search(json.dumps(t, ensure_ascii=False))
+            and not keyboard_layout(json.dumps(t, ensure_ascii=False))
         )
         if needs_detail and fetched_detail:
             time.sleep(1)
@@ -146,10 +187,17 @@ def load_state():
         return {"items": {}, "kb": {}}
     if "items" not in state or "kb" not in state:
         return {"items": state, "kb": {}}
+    # 旧形式のFalseは「非US」であり、JISとは限らないため再判定する。
+    state["kb"] = {
+        part: "us" if layout is True else layout
+        for part, layout in state["kb"].items()
+        if layout is True or layout in ("us", "jis")
+    }
     return state
 
 
 def save_state(state):
+    state = dict(state, kb={k: v for k, v in state["kb"].items() if v in ("us", "jis")})
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2, sort_keys=True)
         f.write("\n")
@@ -198,7 +246,8 @@ def main():
     current = {}
     for w in WATCHES:
         tiles = pages[w["url"]]
-        items = extract_items(tiles, w["matches"], kb_cache)
+        model_tiles = [t for t in tiles if matches_model(t, w["model"])]
+        items = extract_items(model_tiles, w["matches"], kb_cache)
         new_items = {k: v for k, v in items.items() if k not in previous}
         print(f"{w['name']}: tiles: {len(tiles)}, hit: {len(items)}, new: {len(new_items)}")
         current.update(items)

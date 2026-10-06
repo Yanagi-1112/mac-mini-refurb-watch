@@ -137,6 +137,46 @@ def matches_specs(tile):
     )
 
 
+CHIP_RE = re.compile(
+    r"(?:(\d+)コアCPUと(\d+)コアGPUを搭載した)?Apple\s*(M\d+(?:\s*(?:Pro|Max|Ultra))?)\s*チップ"
+)
+KEYBOARD_LABELS = {"us": "US配列", "jis": "JIS配列（日本語）"}
+MODEL_LABELS = {"macbookair": "MacBook Air", "macbookpro": "MacBook Pro"}
+
+
+def format_size(value):
+    # Appleの一覧JSONは "24gb" / "1tb" のような小文字表記なので "24GB" / "1TB" に整える
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(gb|tb)", str(value).strip().lower())
+    return f"{m[1]}{m[2].upper()}" if m else None
+
+
+def describe_specs(tile, layout):
+    """通知に載せる仕様（チップ・メモリ・ストレージ・配列など）を一覧タイルから取り出す。
+
+    クリックせずに出品内容を見分けられるよう、Discordの通知文に使う。
+    一覧JSONに無い項目はNoneのまま返し、通知側で「不明」と表示する。
+    """
+    title = tile.get("title", "")
+    dimensions = tile.get("filters", {}).get("dimensions", {})
+    chip = CHIP_RE.search(title)
+    screen = re.match(r"(\d+)", str(dimensions.get("dimensionScreensize", "")))
+    color = title.rsplit(" - ", 1)[1].strip() if " - " in title else None
+    return {
+        "model": MODEL_LABELS.get(tile_model(tile))
+        or next((v for v in MODEL_LABELS.values() if v in title), "Mac"),
+        "screen": f"{screen[1]}インチ" if screen else None,
+        # M5 / M5 Pro / M5 Max の区別が付くよう、"M5Pro" のような表記ゆれも空白入りに揃える
+        "chip": re.sub(r"(M\d+)\s*", r"\1 ", chip[3]).strip() if chip else None,
+        "cpu_cores": int(chip[1]) if chip and chip[1] else None,
+        "gpu_cores": int(chip[2]) if chip and chip[2] else None,
+        "memory": format_size(dimensions.get("tsMemorySize", "")),
+        "storage": format_size(dimensions.get("dimensionCapacity", "")),
+        "keyboard": KEYBOARD_LABELS.get(layout),
+        "color": color,
+        "nano_texture": "Nano-texture" in title,
+    }
+
+
 WATCHES = [
     {
         "name": "MacBook Air (USキーボード)",
@@ -204,7 +244,12 @@ def extract_items(tiles, matches, kb_cache):
         part = part or t.get("title", "")
         url = "https://www.apple.com" + t.get("productDetailsUrl", "").split("?")[0]
         price = t.get("price", {}).get("currentPrice", {}).get("amount", "?")
-        items[part] = {"title": t.get("title", ""), "price": price, "url": url}
+        items[part] = {
+            "title": t.get("title", ""),
+            "price": price,
+            "url": url,
+            "specs": describe_specs(t, kb_cache.get(t.get("partNumber"))),
+        }
     return items
 
 
@@ -232,17 +277,71 @@ def save_state(state):
         f.write("\n")
 
 
-def notify_discord(new_items, header):
-    webhook = os.environ.get("DISCORD_WEBHOOK_URL")
-    embeds = [
-        {
+def item_embed(item):
+    """1出品ぶんのDiscord embedを作る。
+
+    タイトル（=リンク）に「機種・チップ・メモリ・ストレージ・配列」を並べ、
+    通知一覧を流し見しただけでどれをクリックすればよいか分かるようにする。
+    specs が無い呼び出し（Actionsのテスト通知など）は従来どおり商品名と価格だけ表示する。
+    """
+    specs = item.get("specs")
+    if not specs:
+        return {
             "title": item["title"],
             "url": item["url"],
             "description": f"**{item['price']}**",
             "color": 0x2ECC71,
         }
-        for item in new_items.values()
+
+    unknown = "不明"
+    chip = specs.get("chip")
+    cores = [
+        f"{specs['cpu_cores']}コアCPU" if specs.get("cpu_cores") else None,
+        f"{specs['gpu_cores']}コアGPU" if specs.get("gpu_cores") else None,
     ]
+    cores_text = " / ".join(c for c in cores if c)
+    # 同じM5 Proでも15コア/18コアCPUの別モデルがあるため、タイトルにもコア数を出す
+    chip_summary = chip or "チップ不明"
+    if cores_text:
+        chip_summary += f"（{cores_text.replace(' / ', '・')}）"
+    summary = [
+        " ".join(x for x in (specs.get("screen"), specs.get("model")) if x),
+        chip_summary,
+        f"メモリ{specs.get('memory') or unknown}",
+        f"SSD {specs.get('storage') or unknown}",
+        (specs.get("keyboard") or "配列不明").split("（")[0],
+    ]
+    # 色違い・Nano-texture違いで同じタイトルが並ばないよう、外観も末尾に付ける
+    if specs.get("color"):
+        summary.append(specs["color"])
+    if specs.get("nano_texture"):
+        summary.append("Nano-texture")
+    chip_text = chip or unknown
+    if cores_text:
+        chip_text += f"\n{cores_text}"
+    appearance = specs.get("color") or unknown
+    if specs.get("nano_texture"):
+        appearance += "\nNano-textureディスプレイ"
+    return {
+        # 例: "14インチ MacBook Pro｜M5 Pro（15コアCPU・16コアGPU）｜メモリ24GB｜SSD 1TB｜JIS配列｜シルバー"
+        "title": "｜".join(summary)[:256],
+        "url": item["url"],
+        "description": f"💴 **{item['price']}**　👉 タイトルをクリックで商品ページへ",
+        "color": 0x2ECC71,
+        "fields": [
+            {"name": "🧠 チップ", "value": chip_text, "inline": True},
+            # Apple シリコンはメモリをGPUと共有するため、このメモリ量がVRAMとしても使われる
+            {"name": "💾 メモリ（VRAM共用）", "value": specs.get("memory") or unknown, "inline": True},
+            {"name": "🗄️ ストレージ", "value": f"SSD {specs.get('storage') or unknown}", "inline": True},
+            {"name": "⌨️ キーボード", "value": specs.get("keyboard") or unknown, "inline": True},
+            {"name": "🎨 カラー", "value": appearance, "inline": True},
+        ],
+    }
+
+
+def notify_discord(new_items, header):
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL")
+    embeds = [item_embed(item) for item in new_items.values()]
     payload_base = {"content": f"<@{MENTION_USER_ID}> {header}"}
     # Discordのembedは1メッセージ10件まで
     for i in range(0, len(embeds), 10):

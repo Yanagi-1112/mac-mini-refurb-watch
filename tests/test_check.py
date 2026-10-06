@@ -324,7 +324,12 @@ class StateTests(unittest.TestCase):
                 with open(state_file, encoding="utf-8") as f:
                     saved = json.load(f)
 
-        self.assertEqual(saved["items"], old_items)
+        # 既存商品は再通知せず、保存時に通知用の仕様（specs）だけが追加される
+        self.assertEqual(
+            {k: {f: v for f, v in item.items() if f != "specs"} for k, item in saved["items"].items()},
+            old_items,
+        )
+        self.assertEqual(saved["items"][tile["partNumber"]]["specs"]["keyboard"], "US配列")
         # USラベル付きタイルはfast pathでkbにキャッシュされる
         self.assertEqual(saved["kb"], {tile["partNumber"]: "us"})
 
@@ -361,3 +366,55 @@ class StateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NotificationFormatTests(unittest.TestCase):
+    """通知を開く前に出品内容（チップ・メモリ・ストレージ・配列）が分かるかを確認する。"""
+
+    def pro_m5_pro_tile(self):
+        return {
+            "partNumber": "FGDN4J/A",
+            "productDetailsUrl": "/jp/shop/product/fgdn4j/a?fnode=example",
+            "title": "14インチMacBook Pro [整備済製品] 15コアCPUと16コアGPUを搭載したApple M5 Proチップ、Nano-textureディスプレイ - シルバー",
+            "price": {"currentPrice": {"amount": "363,800円"}},
+            "filters": {"dimensions": {"refurbClearModel": "macbookpro", "dimensionScreensize": "14inch", "tsMemorySize": "24gb", "dimensionCapacity": "1tb"}},
+        }
+
+    def test_specs_are_extracted_from_listing_tile(self):
+        specs = check.describe_specs(self.pro_m5_pro_tile(), "jis")
+        self.assertEqual(specs["model"], "MacBook Pro")
+        self.assertEqual(specs["screen"], "14インチ")
+        self.assertEqual(specs["chip"], "M5 Pro")
+        self.assertEqual((specs["cpu_cores"], specs["gpu_cores"]), (15, 16))
+        self.assertEqual((specs["memory"], specs["storage"]), ("24GB", "1TB"))
+        self.assertEqual(specs["keyboard"], "JIS配列（日本語）")
+        self.assertEqual(specs["color"], "シルバー")
+        self.assertTrue(specs["nano_texture"])
+
+    def test_plain_m5_and_m5_pro_are_distinguished(self):
+        tile = pro_tile()
+        tile["title"] = "14インチMacBook Pro [整備済製品] 10コアCPUと10コアGPUを搭載したApple M5 チップ - スペースブラック"
+        self.assertEqual(check.describe_specs(tile, "us")["chip"], "M5")
+        tile["title"] = "14インチMacBook Pro Apple M5Maxチップ"
+        self.assertEqual(check.describe_specs(tile, "us")["chip"], "M5 Max")
+
+    def test_embed_title_summarizes_specs_and_links_to_product(self):
+        tile = self.pro_m5_pro_tile()
+        items = check.extract_items([tile], check.is_macbook_jis, {"FGDN4J/A": "jis"})
+        embed = check.item_embed(items["FGDN4J/A"])
+        self.assertEqual(embed["title"], "14インチ MacBook Pro｜M5 Pro（15コアCPU・16コアGPU）｜メモリ24GB｜SSD 1TB｜JIS配列｜シルバー｜Nano-texture")
+        self.assertEqual(embed["url"], "https://www.apple.com/jp/shop/product/fgdn4j/a")
+        self.assertIn("363,800円", embed["description"])
+        fields = {f["name"]: f["value"] for f in embed["fields"]}
+        self.assertEqual(fields["🧠 チップ"], "M5 Pro\n15コアCPU / 16コアGPU")
+        self.assertEqual(fields["💾 メモリ（VRAM共用）"], "24GB")
+        self.assertEqual(fields["🗄️ ストレージ"], "SSD 1TB")
+        self.assertEqual(fields["⌨️ キーボード"], "JIS配列（日本語）")
+        self.assertIn("Nano-texture", fields["🎨 カラー"])
+
+    def test_missing_specs_are_shown_as_unknown_and_test_notification_still_works(self):
+        tile = air_tile()  # 一覧JSONにストレージ容量もコア数も無いケース
+        embed = check.item_embed({"title": "x", "price": "1円", "url": "u", "specs": check.describe_specs(tile, "us")})
+        self.assertEqual(embed["title"], "13インチ MacBook Air｜M5｜メモリ24GB｜SSD 不明｜US配列")
+        legacy = check.item_embed({"title": "テスト", "price": "説明", "url": "u"})
+        self.assertEqual(legacy, {"title": "テスト", "url": "u", "description": "**説明**", "color": 0x2ECC71})

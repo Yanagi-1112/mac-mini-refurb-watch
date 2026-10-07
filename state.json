@@ -323,23 +323,6 @@
       "title": "14インチMacBook Pro [整備済製品] 15コアCPUと16コアGPUを搭載したApple M5 Proチップ - シルバー",
       "url": "https://www.apple.com/jp/shop/product/g1mhaj/a/14%E3%82%A4%E3%83%B3%E3%83%81MacBook-Pro-%E6%95%B4%E5%82%99%E6%B8%88%E8%A3%BD%E5%93%81-15%E3%82%B3%E3%82%A2CPU%E3%81%A816%E3%82%B3%E3%82%A2GPU%E3%82%92%E6%90%AD%E8%BC%89%E3%81%97%E3%81%9FApple-M5-Pro%E3%83%81%E3%83%83%E3%83%97-%E3%82%B7%E3%83%AB%E3%83%90%E3%83%BC"
     },
-    "G1MHFJ/A": {
-      "price": "478,800円",
-      "specs": {
-        "chip": "M5 Pro",
-        "color": "シルバー",
-        "cpu_cores": 15,
-        "gpu_cores": 16,
-        "keyboard": "JIS配列（日本語）",
-        "memory": "48GB",
-        "model": "MacBook Pro",
-        "nano_texture": true,
-        "screen": "14インチ",
-        "storage": "1TB"
-      },
-      "title": "14インチMacBook Pro [整備済製品] 15コアCPUと16コアGPUを搭載したApple M5 Proチップ、Nano-textureディスプレイ - シルバー",
-      "url": "https://www.apple.com/jp/shop/product/g1mhfj/a/14%E3%82%A4%E3%83%B3%E3%83%81MacBook-Pro-%E6%95%B4%E5%82%99%E6%B8%88%E8%A3%BD%E5%93%81-15%E3%82%B3%E3%82%A2CPU%E3%81%A816%E3%82%B3%E3%82%A2GPU%E3%82%92%E6%90%AD%E8%BC%89%E3%81%97%E3%81%9FApple-M5-Pro%E3%83%81%E3%83%83%E3%83%97Nano-texture%E3%83%87%E3%82%A3%E3%82%B9%E3%83%97%E3%83%AC%E3%82%A4-%E3%82%B7%E3%83%AB%E3%83%90%E3%83%BC"
-    },
     "G1MHGJ/A": {
       "price": "531,800円",
       "specs": {

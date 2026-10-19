@@ -221,23 +221,6 @@
       "title": "13インチMacBook Air [整備済製品] 10コアCPUと10コアGPUを搭載したApple M5チップ - スカイブルー",
       "url": "https://www.apple.com/jp/shop/product/g1l91j/a"
     },
-    "G1L92J/A": {
-      "price": "267,800円",
-      "specs": {
-        "chip": "M5",
-        "color": "スカイブルー",
-        "cpu_cores": 10,
-        "gpu_cores": 10,
-        "keyboard": "JIS配列（日本語）",
-        "memory": "32GB",
-        "model": "MacBook Air",
-        "nano_texture": false,
-        "screen": "13インチ",
-        "storage": "512GB"
-      },
-      "title": "13インチMacBook Air [整備済製品] 10コアCPUと10コアGPUを搭載したApple M5チップ - スカイブルー",
-      "url": "https://www.apple.com/jp/shop/product/g1l92j/a"
-    },
     "G1MH3J/A": {
       "price": "707,800円",
       "specs": {

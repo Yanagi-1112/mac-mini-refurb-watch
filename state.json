@@ -1,22 +1,5 @@
 {
   "items": {
-    "FDHD4J/A": {
-      "price": "267,800円",
-      "specs": {
-        "chip": "M5",
-        "color": "スターライト",
-        "cpu_cores": 10,
-        "gpu_cores": 10,
-        "keyboard": "JIS配列（日本語）",
-        "memory": "24GB",
-        "model": "MacBook Air",
-        "nano_texture": false,
-        "screen": "13インチ",
-        "storage": "1TB"
-      },
-      "title": "13インチMacBook Air [整備済製品] 10コアCPUと10コアGPUを搭載したApple M5チップ - スターライト",
-      "url": "https://www.apple.com/jp/shop/product/fdhd4j/a"
-    },
     "FGDP4J/A": {
       "price": "466,800円",
       "specs": {

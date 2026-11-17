@@ -30,7 +30,7 @@ def air_tile(part="FDH74J/A", title="13インチMacBook Air"):
         "productDetailsUrl": "/jp/shop/product/fdh74j/a?fnode=example",
         "title": title + " Apple M5チップ",
         "price": {"currentPrice": {"amount": "123,800円（税込）"}},
-        "filters": {"dimensions": {"refurbClearModel": "macbookair", "dimensionScreensize": "13inch", "tsMemorySize": "24gb"}},
+        "filters": {"dimensions": {"refurbClearModel": "macbookair", "dimensionScreensize": "13inch", "tsMemorySize": "32gb", "dimensionCapacity": "1tb"}},
     }
 
 
@@ -40,7 +40,7 @@ def pro_tile(part="TEST2J/A", title="14インチMacBook Pro"):
         "productDetailsUrl": "/jp/shop/product/test2j/a?fnode=example",
         "title": title + " Apple M5チップ",
         "price": {"currentPrice": {"amount": "248,800円（税込）"}},
-        "filters": {"dimensions": {"refurbClearModel": "macbookpro", "dimensionScreensize": "14inch", "tsMemorySize": "24gb"}},
+        "filters": {"dimensions": {"refurbClearModel": "macbookpro", "dimensionScreensize": "14inch", "tsMemorySize": "32gb", "dimensionCapacity": "1tb"}},
     }
 
 
@@ -208,40 +208,85 @@ class KeyboardDetectionTests(unittest.TestCase):
         self.assertEqual(set(items), {"SECONDJ/A"})
 
 
+def air_with(memory="32gb", storage="1tb", screen="13inch", chip="M5"):
+    """購入構成の境界テスト用。メモリ・ストレージ・画面・チップだけ差し替えたAirタイルを作る。"""
+    tile = air_tile()
+    tile["title"] = f"13インチMacBook Air Apple {chip}チップ"
+    dims = tile["filters"]["dimensions"]
+    dims.update(dimensionScreensize=screen, tsMemorySize=memory, dimensionCapacity=storage)
+    if storage is None:
+        dims.pop("dimensionCapacity")
+    return tile
+
+
 class SpecificationTests(unittest.TestCase):
-    def test_model_screen_and_memory_boundaries(self):
-        for factory, accepted in ((air_tile, ("13inch", "13.3inch", "13.6inch")), (pro_tile, ("14inch", "14.2inch"))):
-            for screen in ("13inch", "13.3inch", "13.6inch", "14inch", "14.2inch", "15inch", "16inch", None):
-                for memory in ("8gb", "16gb", "24gb", "32gb", "64gb", None, "unknown"):
-                    tile = factory()
-                    tile["filters"]["dimensions"].update(dimensionScreensize=screen, tsMemorySize=memory)
-                    expected = screen in accepted and memory in ("24gb", "32gb", "64gb")
-                    with self.subTest(model=factory.__name__, screen=screen, memory=memory):
-                        self.assertEqual(check.matches_specs(tile), expected)
+    def test_target_configuration_constants(self):
+        # 購入構成（13インチAir・32GB・1TB）を決めた値。変えるときはREADMEも直すこと
+        self.assertEqual(check.TARGET_MEMORY_GB, 32)
+        self.assertEqual(check.TARGET_STORAGE, "1tb")
 
-    def test_m5_or_later_including_pro_max_and_future_generations(self):
-        for factory in (air_tile, pro_tile):
-            for chip, expected in (("M1", False), ("M4", False), ("M4 Max", False), ("M5", True), ("M5 Pro", True), ("M5 Max", True), ("M6", True), ("M10", True), ("Intel", False), ("", False)):
-                tile = factory()
-                tile["title"] = f"MacBook Apple {chip}チップ"
-                with self.subTest(model=factory.__name__, chip=chip):
-                    self.assertEqual(check.matches_specs(tile), expected)
+    def test_air_m5_32gb_1tb_matches(self):
+        self.assertTrue(check.matches_specs(air_with()))
+        for screen in ("13inch", "13.3inch", "13.6inch"):
+            with self.subTest(screen=screen):
+                self.assertTrue(check.matches_specs(air_with(screen=screen)))
 
-    def test_rejected_specs_never_fetch_detail_or_notify_for_air_and_pro(self):
-        tiles = []
-        for factory in (air_tile, pro_tile):
-            wrong_size = "14inch" if factory is air_tile else "13inch"
-            for screen, memory in (("13inch", "16gb"), (wrong_size, "24gb"), ("15inch", "32gb"), ("16inch", "64gb"), ("13inch", None)):
-                tile = factory()
-                tile["filters"]["dimensions"].update(dimensionScreensize=screen, tsMemorySize=memory)
-                tiles.append(tile)
+    def test_memory_must_be_exactly_32gb(self):
+        for memory in ("8gb", "16gb", "24gb", "64gb", None, "unknown"):
+            with self.subTest(memory=memory):
+                self.assertFalse(check.matches_specs(air_with(memory=memory)))
+
+    def test_storage_must_be_exactly_1tb(self):
+        # 512GB・2TBは対象外。値が無い・不明な場合も対象外（推測しない）
+        for storage in ("256gb", "512gb", "2tb", "4tb", None, "", "unknown"):
+            with self.subTest(storage=storage):
+                self.assertFalse(check.matches_specs(air_with(storage=storage)))
+
+    def test_only_13_inch_air_screen_matches(self):
+        for screen in ("14inch", "14.2inch", "15inch", "15.3inch", "16inch", None):
+            with self.subTest(screen=screen):
+                self.assertFalse(check.matches_specs(air_with(screen=screen)))
+
+    def test_pro_is_never_matched_even_with_target_configuration(self):
+        # 14インチProは2026-11-17に監視停止。32GB/1TBでも通知対象にしない
+        tile = pro_tile()
+        self.assertEqual(tile["filters"]["dimensions"]["tsMemorySize"], "32gb")
+        self.assertEqual(tile["filters"]["dimensions"]["dimensionCapacity"], "1tb")
+        self.assertFalse(check.matches_specs(tile))
+        for screen in ("13inch", "14inch", "14.2inch", "16inch"):
+            tile["filters"]["dimensions"]["dimensionScreensize"] = screen
+            with self.subTest(screen=screen):
+                self.assertFalse(check.matches_specs(tile))
+
+    def test_m5_or_later_including_future_generations(self):
+        for chip, expected in (("M1", False), ("M4", False), ("M4 Max", False), ("M5", True), ("M5 Pro", True), ("M5 Max", True), ("M6", True), ("M10", True), ("Intel", False), ("", False)):
+            with self.subTest(chip=chip):
+                self.assertEqual(check.matches_specs(air_with(chip=chip)), expected)
+
+    def test_m4_32gb_1tb_is_rejected_and_m6_air_is_accepted(self):
+        self.assertFalse(check.matches_specs(air_with(chip="M4")))
+        self.assertTrue(check.matches_specs(air_with(chip="M6")))
+
+    def test_rejected_specs_never_fetch_detail_or_notify(self):
+        tiles = [
+            air_with(memory="24gb"), air_with(memory="16gb"),
+            air_with(storage="512gb"), air_with(storage="2tb"), air_with(storage=None),
+            air_with(screen="15inch"), air_with(chip="M4"),
+            pro_tile(), pro_tile("PRO2"),
+        ]
         with mock.patch("check.fetch_tiles", return_value=tiles), mock.patch("check.load_state", return_value={"items": {}, "kb": {}}):
             with mock.patch("check.fetch_product_page") as detail, mock.patch("check.notify_discord") as notify, mock.patch("check.save_state"):
                 check.main()
                 detail.assert_not_called()
                 notify.assert_not_called()
 
-
+    def test_watches_only_contain_air_us_and_jis(self):
+        self.assertEqual([w["model"] for w in check.WATCHES], ["macbookair", "macbookair"])
+        self.assertEqual([w["matches"] for w in check.WATCHES], [check.is_macbook_us, check.is_macbook_jis])
+        for w in check.WATCHES:
+            self.assertIn("32GB", w["header"])
+            self.assertIn("1TB", w["header"])
+            self.assertNotIn("Pro", w["header"])
 class StateTests(unittest.TestCase):
     def test_legacy_boolean_cache_is_migrated_without_assuming_false_is_jis(self):
         state = {"items": {}, "kb": {"US": True, "NON_US": False, "JIS": "jis"}}
@@ -257,7 +302,7 @@ class StateTests(unittest.TestCase):
                 self.assertTrue(check.is_macbook_jis(air_tile(), kb))
                 fetch.assert_called_once()
 
-    def test_mixed_catalog_notifies_air_and_pro_us_jis_once(self):
+    def test_mixed_catalog_notifies_air_us_jis_once_and_ignores_pro(self):
         air_us = air_tile("AIR_US", "MacBook Air - USキーボード")
         air_jis = air_tile("AIR_JIS", "MacBook Air - JISキーボード")
         pro_us = pro_tile("PRO_US", "MacBook Pro - USキーボード")
@@ -266,12 +311,12 @@ class StateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(check, "STATE_FILE", os.path.join(tmp, "state.json")):
             with mock.patch("check.fetch_tiles", return_value=tiles) as fetch, mock.patch("check.notify_discord") as notify:
                 check.main()
-                self.assertEqual(fetch.call_count, 2)
-                self.assertEqual([set(c.args[0]) for c in notify.call_args_list], [{"AIR_US"}, {"AIR_JIS"}, {"PRO_US"}, {"PRO_JIS"}])
+                # 監視URLはAirページ1つだけ（Proページはもう取得しない）
+                self.assertEqual(fetch.call_count, 1)
+                self.assertEqual([set(c.args[0]) for c in notify.call_args_list], [{"AIR_US"}, {"AIR_JIS"}])
                 self.assertIn("JIS", notify.call_args_list[1].args[1])
-                self.assertIn("JIS", notify.call_args_list[3].args[1])
-                self.assertIn("MacBook Pro", notify.call_args_list[3].args[1])
-                self.assertEqual(set(check.load_state()["items"]), {"AIR_US", "AIR_JIS", "PRO_US", "PRO_JIS"})
+                self.assertNotIn("MacBook Pro", notify.call_args_list[1].args[1])
+                self.assertEqual(set(check.load_state()["items"]), {"AIR_US", "AIR_JIS"})
                 notify.reset_mock()
                 check.main()
                 notify.assert_not_called()
@@ -281,7 +326,7 @@ class StateTests(unittest.TestCase):
                 notify.assert_not_called()
                 fetch.return_value = tiles
                 check.main()
-                self.assertEqual([set(c.args[0]) for c in notify.call_args_list], [{"AIR_JIS"}, {"PRO_JIS"}])
+                self.assertEqual([set(c.args[0]) for c in notify.call_args_list], [{"AIR_JIS"}])
 
     def test_load_new_state_keeps_items_and_keyboard_cache(self):
         state = {
@@ -363,6 +408,38 @@ class StateTests(unittest.TestCase):
 
         self.assertEqual(saved["items"], {})
 
+    def test_pro_and_non_target_air_in_old_state_are_dropped_without_notification(self):
+        # 監視停止したPro（14インチ）や条件外のAir（24GB）が旧stateに残っていても、
+        # 一覧に載り続けていて通知されず、次回保存で消えること。条件内のAirだけが残る
+        pro = pro_tile("OLD_PRO", "MacBook Pro - USキーボード")
+        air24 = air_with(memory="24gb")
+        air24["partNumber"] = "OLD_AIR24"
+        target = air_tile("TARGET_AIR", "MacBook Air - USキーボード")
+
+        def old_item(tile):
+            return {"title": tile["title"], "price": tile["price"]["currentPrice"]["amount"], "url": "https://www.apple.com/jp/shop/product/x"}
+
+        old_state = {
+            "items": {t["partNumber"]: old_item(t) for t in (pro, air24, target)},
+            "kb": {"OLD_PRO": "us", "TARGET_AIR": "us"},
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = os.path.join(temp_dir, "state.json")
+            with open(state_file, "w", encoding="utf-8") as f:
+                json.dump(old_state, f, ensure_ascii=False)
+
+            with mock.patch.object(check, "STATE_FILE", state_file):
+                with mock.patch("check.fetch_tiles", return_value=[pro, air24, target]):
+                    with mock.patch("check.notify_discord") as notify:
+                        check.main()
+
+                notify.assert_not_called()
+                with open(state_file, encoding="utf-8") as f:
+                    saved = json.load(f)
+
+        self.assertEqual(set(saved["items"]), {"TARGET_AIR"})
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -413,8 +490,9 @@ class NotificationFormatTests(unittest.TestCase):
         self.assertIn("Nano-texture", fields["🎨 カラー"])
 
     def test_missing_specs_are_shown_as_unknown_and_test_notification_still_works(self):
-        tile = air_tile()  # 一覧JSONにストレージ容量もコア数も無いケース
+        tile = air_tile()  # 一覧JSONにストレージ容量もコア数も無いケース（通知文の「不明」表示の確認）
+        tile["filters"]["dimensions"].pop("dimensionCapacity")
         embed = check.item_embed({"title": "x", "price": "1円", "url": "u", "specs": check.describe_specs(tile, "us")})
-        self.assertEqual(embed["title"], "13インチ MacBook Air｜M5｜メモリ24GB｜SSD 不明｜US配列")
+        self.assertEqual(embed["title"], "13インチ MacBook Air｜M5｜メモリ32GB｜SSD 不明｜US配列")
         legacy = check.item_embed({"title": "テスト", "price": "説明", "url": "u"})
         self.assertEqual(legacy, {"title": "テスト", "url": "u", "description": "**説明**", "color": 0x2ECC71})

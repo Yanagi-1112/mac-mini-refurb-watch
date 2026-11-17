@@ -1,9 +1,10 @@
 """Apple整備済製品ページを監視し、新着をDiscordに通知する。
 
-監視対象:
-  共通条件: M5以降・メモリ24GB以上
-  - 13インチMacBook Air（US・JISキーボード搭載モデル）
-  - 14インチMacBook Pro（US・JISキーボード搭載モデル）
+監視対象（購入構成を絞った1構成だけ）:
+  13インチMacBook Air・M5以降・メモリ32GB・SSD 1TB（US・JISキーボード搭載モデル）
+
+14インチPro・24GB以上の監視は2026-11-17に停止（購入構成が決まったため）。
+戻す場合はgit履歴の matches_specs と WATCHES を参照。
 
 Mac mini監視は2026-08-26に停止（M6搭載の新型が発売され整備済品を待つ必要がなくなったため）。
 復活させる場合はgit履歴の is_mac_mini と WATCHES のMac miniエントリを参照。
@@ -31,6 +32,13 @@ UA = (
 # 大文字小文字を区別する（小文字の us がHTML属性名等に紛れて誤検知するのを防ぐ）
 US_KEYBOARD_RE = re.compile(r"(US|ＵＳ|英語|米国)[^、。]{0,12}キーボード")
 JIS_KEYBOARD_RE = re.compile(r"(JIS|ＪＩＳ|日本語)[^、。]{0,12}キーボード")
+
+
+# 通知対象の購入構成（ユーザーが13インチAir・32GB・1TBに決めたため。2026-11-17）。
+# 以前は「24GB以上」「容量不問」だったが、決めた構成以外の通知はノイズになるので「ちょうど一致」にした。
+# 値はAppleの一覧JSONの表記（小文字）に合わせる。変えたい場合はこの2つを書き換えるだけでよい。
+TARGET_MEMORY_GB = 32  # tsMemorySize が "32gb" のものだけ（24GB・16GB・64GBは対象外）
+TARGET_STORAGE = "1tb"  # filters.dimensions.dimensionCapacity が "1tb" のものだけ（512GB・2TBは対象外）
 
 
 def tile_model(tile):
@@ -120,19 +128,18 @@ def matches_specs(tile):
     dimensions = tile.get("filters", {}).get("dimensions", {})
     screen = str(dimensions.get("dimensionScreensize", "")).strip().lower()
     memory = str(dimensions.get("tsMemorySize", "")).strip().lower()
-    # Airは13インチカテゴリ（13.3/13.6）、Proは14インチ（14.2）を対象にする。
-    # SSD容量からメモリを推測せず、仕様不明の商品も除外する。
-    if matches_model(tile, "macbookair"):
-        size = "13"
-    elif matches_model(tile, "macbookpro"):
-        size = "14"
-    else:
+    storage = str(dimensions.get("dimensionCapacity", "")).strip().lower()
+    # 対象は13インチMacBook Air（13.3/13.6インチ表記を含む）のみ。14インチProは通知しない
+    # （Pro側の判定は2026-11-17に外した。戻す場合はgit履歴参照）。
+    # SSD容量からメモリを推測せず、メモリ・ストレージが不明の商品も除外する。
+    if not matches_model(tile, "macbookair"):
         return False
     ram = re.fullmatch(r"(\d+)\s*gb", memory)
     chip = re.search(r"\bM(\d+)(?:\s+(?:Pro|Max|Ultra))?\s*チップ", tile.get("title", ""))
     return bool(
-        re.fullmatch(rf"{size}(?:\.\d+)?\s*inch", screen)
-        and ram and int(ram[1]) >= 24
+        re.fullmatch(r"13(?:\.\d+)?\s*inch", screen)
+        and ram and int(ram[1]) == TARGET_MEMORY_GB
+        and storage == TARGET_STORAGE
         and chip and int(chip[1]) >= 5
     )
 
@@ -177,33 +184,20 @@ def describe_specs(tile, layout):
     }
 
 
+# 監視対象は13インチMacBook Airの2エントリのみ（Proは2026-11-17に停止。戻す場合はgit履歴参照）。
 WATCHES = [
     {
         "name": "MacBook Air (USキーボード)",
         "model": "macbookair",
         "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-air",
-        "header": "⌨️ **13インチ・M5以降・メモリ24GB以上・USキーボードの整備済MacBook Airが出品されました！**",
+        "header": "⌨️ **13インチ・M5以降・メモリ32GB・SSD 1TB・USキーボードの整備済MacBook Airが出品されました！**",
         "matches": is_macbook_us,
     },
     {
         "name": "MacBook Air (JISキーボード)",
         "model": "macbookair",
         "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-air",
-        "header": "⌨️ **13インチ・M5以降・メモリ24GB以上・JISキーボードの整備済MacBook Airが出品されました！**",
-        "matches": is_macbook_jis,
-    },
-    {
-        "name": "MacBook Pro (USキーボード)",
-        "model": "macbookpro",
-        "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-pro",
-        "header": "💻 **14インチ・M5以降・メモリ24GB以上・USキーボードの整備済MacBook Proが出品されました！**",
-        "matches": is_macbook_us,
-    },
-    {
-        "name": "MacBook Pro (JISキーボード)",
-        "model": "macbookpro",
-        "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-pro",
-        "header": "💻 **14インチ・M5以降・メモリ24GB以上・JISキーボードの整備済MacBook Proが出品されました！**",
+        "header": "⌨️ **13インチ・M5以降・メモリ32GB・SSD 1TB・JISキーボードの整備済MacBook Airが出品されました！**",
         "matches": is_macbook_jis,
     },
 ]

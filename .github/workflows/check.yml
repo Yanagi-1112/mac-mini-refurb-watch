@@ -2,7 +2,9 @@ name: Check refurbished MacBook Air 13 (M5+, 32GB, 1TB, US/JIS)
 
 on:
   schedule:
-    - cron: "*/5 * * * *" # 5分ごと（GitHub側の負荷で数分〜十数分遅れることあり）
+    # GitHub側のcronは大きく間引かれる（*/5でも実績は1日4回ほど）ので、これは保険。
+    # 本命は外部サーバーのcronからの workflow_dispatch（5分ごと）。詳細は README の注意事項。
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       test_notify:

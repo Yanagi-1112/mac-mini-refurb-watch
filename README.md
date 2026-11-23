@@ -16,7 +16,7 @@ GitHub Actionsで動くので、サーバー不要・完全無料です。
 ## 仕組み
 
 ```
-GitHub Actions (5分ごとのcron)
+GitHub Actions（外部サーバーのcronから5分ごとに起動。GitHub側のcronは保険）
   └─ check.py
        ├─ Appleの整備済製品ページ（MacBook Air）を取得
        ├─ 埋め込みJSON (REFURB_GRID_BOOTSTRAP) から監視対象を抽出
@@ -62,7 +62,11 @@ python check.py                 # DISCORD_WEBHOOK_URL 未設定ならドライ�
 
 ## 注意
 
-- GitHub Actionsのcronは負荷状況で数分〜十数分遅れることがあります。
+- GitHub Actionsのcron（`schedule`）はGitHub側で大きく間引かれます。`*/5` の設定でも、2026年11月時点の実績は1日4回ほどでした。
+- そのため、外部サーバーのcronから5分ごとに `workflow_dispatch`（手動起動のAPI）を叩いて起動しています。手動起動は間引かれません。
+  - 叩くAPI: `POST /repos/<owner>/<repo>/actions/workflows/check.yml/dispatches`（本文 `{"ref":"main"}`）
+  - 必要な権限: このリポジトリだけを対象にした fine-grained トークンの「Actions: Read and write」
+  - 外部サーバーが止まっても、GitHub側のcronが保険として（間引かれながら）動き続けます。
 - **リポジトリに60日間コミットがないと、GitHubがスケジュール実行を自動停止します**（メールが来るのでActionsタブから再有効化すればOK）。在庫変動があるたびに `state.json` がコミットされるので、実際にはほぼ止まりません。
 - 監視対象を増やしたい場合は `check.py` の `WATCHES` に `model`・`url`・タイル判定関数を指定したエントリを追加してください。`model` はAppleの `refurbClearModel` に対応します。
 - MacBook Airは、まず一覧タイル内のUS/JIS表記を確認し、判定できない場合だけ商品詳細ページを取得します。US・JISの両方を通知し、通知の見出しに機種と配列を表示します。対象は13インチ（13.3/13.6インチを含む）・M5以降（M5 Pro/MaxやM6以降も含む）・メモリ32GB・SSD 1TBです。メモリ・SSD容量の目標値は `check.py` の `TARGET_MEMORY_GB` / `TARGET_STORAGE` で、一覧データにメモリやSSD容量の値が無い商品は通知しません。14インチMacBook Proは通知しません。条件外・仕様不明の商品も通知しません。価格による制限はありません。

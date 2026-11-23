@@ -1,11 +1,18 @@
 """Apple整備済製品ページを監視し、新着をDiscordに通知する。
 
-監視対象（購入構成を絞った1構成だけ）:
-  13インチMacBook Air・M5以降・メモリ32GB・SSD 1TB（US・JISキーボード搭載モデル）
+監視対象（互いに重ならない5つのウォッチ。共通条件は「M5以降」。メモリ・画面サイズが読めないものは対象外）:
+  1. MacBook Air 本命 US配列 : 13インチ・メモリ32GB・SSD 1TB
+  2. MacBook Air 本命 JIS配列: 同上
+  3. MacBook Air 24GB以上 US配列: 13インチ・メモリ24GB以上で、本命（32GB/1TB）ではないもの（SSD不問）
+  4. MacBook Pro US配列  : 14インチ・メモリ不問
+  5. MacBook Pro JIS配列 : 14インチ・メモリ24GB以上
 
-14インチPro・24GB以上の監視は2026-11-17に停止（購入構成が決まったため）。
-戻す場合はgit履歴の matches_specs と WATCHES を参照。
+経緯: 2026-11-17に購入構成を「13インチAir・32GB・1TB」の1つに絞ったが、
+2026-11-23にユーザーが「本命より少し条件の低いものも知りたい」と希望したため、近い構成も通知するよう拡張した。
+本命だけは見出しに⭐【本命】を付けて見分けられるようにしている。
+JISのAirで本命以外（24GBなど）、JISのProで24GB未満、15インチAir・16インチPro、M4以前は通知しない。
 
+Mac mini監視は2026-08-26に停止（M6搭載の新型が発売され整備済品を待つ必要がなくなったため）。
 Mac mini監視は2026-08-26に停止（M6搭載の新型が発売され整備済品を待つ必要がなくなったため）。
 復活させる場合はgit履歴の is_mac_mini と WATCHES のMac miniエントリを参照。
 
@@ -34,11 +41,14 @@ US_KEYBOARD_RE = re.compile(r"(US|ＵＳ|英語|米国)[^、。]{0,12}キーボ�
 JIS_KEYBOARD_RE = re.compile(r"(JIS|ＪＩＳ|日本語)[^、。]{0,12}キーボード")
 
 
-# 通知対象の購入構成（ユーザーが13インチAir・32GB・1TBに決めたため。2026-11-17）。
-# 以前は「24GB以上」「容量不問」だったが、決めた構成以外の通知はノイズになるので「ちょうど一致」にした。
-# 値はAppleの一覧JSONの表記（小文字）に合わせる。変えたい場合はこの2つを書き換えるだけでよい。
-TARGET_MEMORY_GB = 32  # tsMemorySize が "32gb" のものだけ（24GB・16GB・64GBは対象外）
-TARGET_STORAGE = "1tb"  # filters.dimensions.dimensionCapacity が "1tb" のものだけ（512GB・2TBは対象外）
+# 「本命」の購入構成（ユーザーが13インチAir・32GB・1TBに決めたため。2026-11-17）。
+# 2026-11-23に「本命より少し条件の低いものも知りたい」との希望で、近い構成（24GB以上のUS配列Air・14インチPro）も
+# 別ウォッチとして通知するようにした。本命はこの2つ「ちょうど一致」で判定し、他のウォッチと重複通知しない基準にも使う。
+# 値はAppleの一覧JSONの表記（小文字）に合わせる。変えたい場合は下の定数を書き換えるだけでよい。
+TARGET_MEMORY_GB = 32  # 本命: tsMemorySize が "32gb" のものだけ
+TARGET_STORAGE = "1tb"  # 本命: filters.dimensions.dimensionCapacity が "1tb" のものだけ
+MIN_MEMORY_GB = 24  # 「条件を少し下げた」ウォッチの下限（24GB以上。16GB以下は通知しない）
+MIN_CHIP_GENERATION = 5  # M5以降（M5 Pro/Max・M6以降も含む。チップ世代の数字で判定）
 
 
 def tile_model(tile):
@@ -124,24 +134,71 @@ def matches_model(tile, model):
     return bool(model_name and model_name in title)
 
 
-def matches_specs(tile):
+def tile_facts(tile):
+    """スペック判定に使う値を一覧タイルから取り出す。読めない項目はNone（推測しない）。
+
+    screen: 画面インチの整数部（13 / 13.3 / 13.6 → 13、14 / 14.2 → 14）
+    memory: メモリGB（整数）  storage: SSD容量（"1tb" など小文字） chip: チップ世代の数字（M5 → 5）
+    """
     dimensions = tile.get("filters", {}).get("dimensions", {})
-    screen = str(dimensions.get("dimensionScreensize", "")).strip().lower()
-    memory = str(dimensions.get("tsMemorySize", "")).strip().lower()
-    storage = str(dimensions.get("dimensionCapacity", "")).strip().lower()
-    # 対象は13インチMacBook Air（13.3/13.6インチ表記を含む）のみ。14インチProは通知しない
-    # （Pro側の判定は2026-11-17に外した。戻す場合はgit履歴参照）。
-    # SSD容量からメモリを推測せず、メモリ・ストレージが不明の商品も除外する。
-    if not matches_model(tile, "macbookair"):
-        return False
-    ram = re.fullmatch(r"(\d+)\s*gb", memory)
-    chip = re.search(r"\bM(\d+)(?:\s+(?:Pro|Max|Ultra))?\s*チップ", tile.get("title", ""))
-    return bool(
-        re.fullmatch(r"13(?:\.\d+)?\s*inch", screen)
-        and ram and int(ram[1]) == TARGET_MEMORY_GB
-        and storage == TARGET_STORAGE
-        and chip and int(chip[1]) >= 5
+    screen = re.fullmatch(
+        r"(\d+)(?:\.\d+)?\s*inch", str(dimensions.get("dimensionScreensize", "")).strip().lower()
     )
+    ram = re.fullmatch(r"(\d+)\s*gb", str(dimensions.get("tsMemorySize", "")).strip().lower())
+    chip = re.search(r"\bM(\d+)(?:\s+(?:Pro|Max|Ultra))?\s*チップ", tile.get("title", ""))
+    return {
+        "screen": int(screen[1]) if screen else None,
+        "memory": int(ram[1]) if ram else None,
+        "storage": str(dimensions.get("dimensionCapacity", "")).strip().lower() or None,
+        "chip": int(chip[1]) if chip else None,
+    }
+
+
+def _is_target(tile, model, screen):
+    # 機種・画面インチ・M5以降を満たすか（5つのウォッチ共通の土台）。facts も一緒に返す
+    f = tile_facts(tile)
+    ok = (
+        matches_model(tile, model)
+        and f["screen"] == screen
+        and f["chip"] is not None
+        and f["chip"] >= MIN_CHIP_GENERATION
+    )
+    return ok, f
+
+
+def _is_main_config(f):
+    # 本命構成（32GB・1TBちょうど）。SSDが不明（None）なら本命とは見なさない
+    return f["memory"] == TARGET_MEMORY_GB and f["storage"] == TARGET_STORAGE
+
+
+def specs_air_main(tile):
+    # ウォッチ1・2: 13インチAir・本命（32GB/1TB）
+    ok, f = _is_target(tile, "macbookair", 13)
+    return ok and _is_main_config(f)
+
+
+def specs_air_24gb_plus(tile):
+    # ウォッチ3: 13インチAir・24GB以上。本命は別ウォッチで通知するので除く（1出品が2回通知されないように）。
+    # SSD容量は不問（不明でも可）。メモリが読めないものは対象外
+    ok, f = _is_target(tile, "macbookair", 13)
+    return ok and f["memory"] is not None and f["memory"] >= MIN_MEMORY_GB and not _is_main_config(f)
+
+
+def specs_pro14_any(tile):
+    # ウォッチ4: 14インチPro。メモリ不問（メモリ値が読めなくても可）
+    ok, _ = _is_target(tile, "macbookpro", 14)
+    return ok
+
+
+def specs_pro14_24gb_plus(tile):
+    # ウォッチ5: 14インチPro・24GB以上
+    ok, f = _is_target(tile, "macbookpro", 14)
+    return ok and f["memory"] is not None and f["memory"] >= MIN_MEMORY_GB
+
+
+def matches_specs(tile):
+    """どれかのウォッチのスペック条件に合うか（キーボード配列は見ない）。"""
+    return any(w["specs"](tile) for w in WATCHES)
 
 
 CHIP_RE = re.compile(
@@ -184,20 +241,50 @@ def describe_specs(tile, layout):
     }
 
 
-# 監視対象は13インチMacBook Airの2エントリのみ（Proは2026-11-17に停止。戻す場合はgit履歴参照）。
+# 監視ウォッチ5件（互いに重ならない条件。この順で通知する）。
+# "specs" はタイルのスペック条件、"matches" はキーボード配列の判定（詳細ページ取得を伴う）。
+# main() は先に specs で絞ってから配列判定に進むので、条件外のタイルで詳細ページは取得しない。
+AIR_URL = "https://www.apple.com/jp/shop/refurbished/mac/macbook-air"
+PRO_URL = "https://www.apple.com/jp/shop/refurbished/mac/macbook-pro"
 WATCHES = [
     {
-        "name": "MacBook Air (USキーボード)",
+        "name": "MacBook Air 本命 (USキーボード)",
         "model": "macbookair",
-        "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-air",
-        "header": "⌨️ **13インチ・M5以降・メモリ32GB・SSD 1TB・USキーボードの整備済MacBook Airが出品されました！**",
+        "url": AIR_URL,
+        "header": "⭐ **【本命】13インチ・M5以降・メモリ32GB・SSD 1TB・USキーボードの整備済MacBook Airが出品されました！**",
+        "specs": specs_air_main,
         "matches": is_macbook_us,
     },
     {
-        "name": "MacBook Air (JISキーボード)",
+        "name": "MacBook Air 本命 (JISキーボード)",
         "model": "macbookair",
-        "url": "https://www.apple.com/jp/shop/refurbished/mac/macbook-air",
-        "header": "⌨️ **13インチ・M5以降・メモリ32GB・SSD 1TB・JISキーボードの整備済MacBook Airが出品されました！**",
+        "url": AIR_URL,
+        "header": "⭐ **【本命】13インチ・M5以降・メモリ32GB・SSD 1TB・JISキーボードの整備済MacBook Airが出品されました！**",
+        "specs": specs_air_main,
+        "matches": is_macbook_jis,
+    },
+    {
+        "name": "MacBook Air 24GB以上 (USキーボード)",
+        "model": "macbookair",
+        "url": AIR_URL,
+        "header": "⌨️ **13インチ・M5以降・メモリ24GB以上・USキーボードの整備済MacBook Airが出品されました！**",
+        "specs": specs_air_24gb_plus,
+        "matches": is_macbook_us,
+    },
+    {
+        "name": "MacBook Pro (USキーボード)",
+        "model": "macbookpro",
+        "url": PRO_URL,
+        "header": "💻 **14インチ・M5以降・USキーボードの整備済MacBook Proが出品されました！**",
+        "specs": specs_pro14_any,
+        "matches": is_macbook_us,
+    },
+    {
+        "name": "MacBook Pro 24GB以上 (JISキーボード)",
+        "model": "macbookpro",
+        "url": PRO_URL,
+        "header": "💻 **14インチ・M5以降・メモリ24GB以上・JISキーボードの整備済MacBook Proが出品されました！**",
+        "specs": specs_pro14_24gb_plus,
         "matches": is_macbook_jis,
     },
 ]
@@ -368,7 +455,7 @@ def main():
     current = {}
     for w in WATCHES:
         tiles = pages[w["url"]]
-        model_tiles = [t for t in tiles if matches_model(t, w["model"]) and matches_specs(t)]
+        model_tiles = [t for t in tiles if matches_model(t, w["model"]) and w["specs"](t)]
         items = extract_items(model_tiles, w["matches"], kb_cache)
         new_items = {k: v for k, v in items.items() if k not in previous}
         print(f"{w['name']}: tiles: {len(tiles)}, hit: {len(items)}, new: {len(new_items)}")

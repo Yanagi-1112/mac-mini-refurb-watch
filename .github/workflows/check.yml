@@ -1,4 +1,4 @@
-name: Check refurbished MacBook Air 13 (M5+, 32GB, 1TB, US/JIS)
+name: Check refurbished MacBook Air 13 / Pro 14 (M5+)
 
 on:
   schedule:
@@ -34,7 +34,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          python -c "import check; check.notify_discord({'TEST': {'title': '✅ テスト通知：監視は正常に動作しています', 'price': 'M5以降・メモリ32GB・SSD 1TBの13インチMacBook Air（US/JIS）が出品されたらここに通知が届きます', 'url': 'https://www.apple.com/jp/shop/refurbished/mac'}, 'SAMPLE': {'title': '表示例', 'price': '（表示例）297,800円', 'url': 'https://www.apple.com/jp/shop/refurbished/mac/macbook-air', 'specs': {'model': 'MacBook Air', 'screen': '13インチ', 'chip': 'M5', 'cpu_cores': None, 'gpu_cores': None, 'memory': '32GB', 'storage': '1TB', 'keyboard': 'JIS配列（日本語）', 'color': 'シルバー', 'nano_texture': False}}}, '✅ **テスト通知**')"
+          python -c "import check; check.notify_discord({'TEST': {'title': '✅ テスト通知：監視は正常に動作しています', 'price': 'M5以降の13インチMacBook Air（32GB/1TBの本命・24GB以上のUS配列）と14インチMacBook Pro（US配列・24GB以上のJIS配列）が出品されたらここに通知が届きます', 'url': 'https://www.apple.com/jp/shop/refurbished/mac'}, 'SAMPLE': {'title': '表示例', 'price': '（表示例）297,800円', 'url': 'https://www.apple.com/jp/shop/refurbished/mac/macbook-air', 'specs': {'model': 'MacBook Air', 'screen': '13インチ', 'chip': 'M5', 'cpu_cores': None, 'gpu_cores': None, 'memory': '32GB', 'storage': '1TB', 'keyboard': 'JIS配列（日本語）', 'color': 'シルバー', 'nano_texture': False}}}, '✅ **テスト通知**')"
 
       - name: Run checker
         env:

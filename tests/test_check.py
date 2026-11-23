@@ -208,85 +208,254 @@ class KeyboardDetectionTests(unittest.TestCase):
         self.assertEqual(set(items), {"SECONDJ/A"})
 
 
-def air_with(memory="32gb", storage="1tb", screen="13inch", chip="M5"):
-    """購入構成の境界テスト用。メモリ・ストレージ・画面・チップだけ差し替えたAirタイルを作る。"""
-    tile = air_tile()
-    tile["title"] = f"13インチMacBook Air Apple {chip}チップ"
+def air_with(memory="32gb", storage="1tb", screen="13inch", chip="M5", part="AIR_X", kb="US"):
+    """境界テスト用。メモリ・ストレージ・画面・チップ・配列だけ差し替えたAirタイルを作る。
+
+    配列はタイトルに「USキーボード」等を入れて、詳細ページ取得なしで判定できるようにしている。
+    """
+    tile = air_tile(part)
+    tile["title"] = f"{screen}MacBook Air Apple {chip}チップ - {kb}キーボード"
     dims = tile["filters"]["dimensions"]
     dims.update(dimensionScreensize=screen, tsMemorySize=memory, dimensionCapacity=storage)
-    if storage is None:
-        dims.pop("dimensionCapacity")
+    for key, value in (("tsMemorySize", memory), ("dimensionCapacity", storage)):
+        if value is None:
+            dims.pop(key)
     return tile
 
 
+def pro_with(memory="16gb", storage="1tb", screen="14inch", chip="M5", part="PRO_X", kb="US"):
+    """air_with のPro版（14インチMacBook Pro）。"""
+    tile = pro_tile(part)
+    tile["title"] = f"{screen}MacBook Pro Apple {chip}チップ - {kb}キーボード"
+    dims = tile["filters"]["dimensions"]
+    dims.update(dimensionScreensize=screen, tsMemorySize=memory, dimensionCapacity=storage)
+    for key, value in (("tsMemorySize", memory), ("dimensionCapacity", storage)):
+        if value is None:
+            dims.pop(key)
+    return tile
+
+
+def run_main(tiles_by_url):
+    """main() を実行し、(通知された [(ウォッチ見出し, {part}), ...], 取得したURL一覧, 詳細ページ取得回数) を返す。"""
+    def fake_fetch_tiles(url):
+        return tiles_by_url[url]
+
+    with tempfile.TemporaryDirectory() as tmp, mock.patch.object(check, "STATE_FILE", os.path.join(tmp, "state.json")):
+        with mock.patch("check.fetch_tiles", side_effect=fake_fetch_tiles) as fetch, \
+                mock.patch("check.fetch_product_page", return_value="") as detail, \
+                mock.patch("check.notify_discord") as notify:
+            check.main()
+    notified = [(c.args[1], set(c.args[0])) for c in notify.call_args_list]
+    return notified, [c.args[0] for c in fetch.call_args_list], detail.call_count
+
+
+def watch_name_of(header):
+    return next(w["name"] for w in check.WATCHES if w["header"] == header)
+
+
+def notified_by_watch(tiles):
+    """Air・Proの両ページに同じタイル群を返し、{ウォッチ名: {part}} を得る（機種違いは matches_model が除く）。"""
+    notified, _, _ = run_main({check.AIR_URL: tiles, check.PRO_URL: tiles})
+    return {watch_name_of(h): parts for h, parts in notified}
+
+
+AIR_MAIN_US = "MacBook Air 本命 (USキーボード)"
+AIR_MAIN_JIS = "MacBook Air 本命 (JISキーボード)"
+AIR_24_US = "MacBook Air 24GB以上 (USキーボード)"
+PRO_US = "MacBook Pro (USキーボード)"
+PRO_24_JIS = "MacBook Pro 24GB以上 (JISキーボード)"
+
+
 class SpecificationTests(unittest.TestCase):
-    def test_target_configuration_constants(self):
-        # 購入構成（13インチAir・32GB・1TB）を決めた値。変えるときはREADMEも直すこと
+    def test_constants(self):
+        # 本命構成（13インチAir・32GB・1TB）と24GB以上の下限。変えるときはREADMEも直すこと
         self.assertEqual(check.TARGET_MEMORY_GB, 32)
         self.assertEqual(check.TARGET_STORAGE, "1tb")
+        self.assertEqual(check.MIN_MEMORY_GB, 24)
 
-    def test_air_m5_32gb_1tb_matches(self):
-        self.assertTrue(check.matches_specs(air_with()))
+    def test_tile_facts_reads_screen_memory_storage_chip(self):
+        facts = check.tile_facts(air_with(memory="24gb", storage="512gb", screen="13.6inch", chip="M5 Pro"))
+        self.assertEqual(facts, {"screen": 13, "memory": 24, "storage": "512gb", "chip": 5})
+        unknown = check.tile_facts(air_with(memory=None, storage=None, screen="unknown", chip=""))
+        self.assertEqual(unknown, {"screen": None, "memory": None, "storage": None, "chip": None})
+
+    def test_watches_are_the_five_expected_in_order(self):
+        self.assertEqual(
+            [(w["name"], w["model"], w["matches"]) for w in check.WATCHES],
+            [
+                (AIR_MAIN_US, "macbookair", check.is_macbook_us),
+                (AIR_MAIN_JIS, "macbookair", check.is_macbook_jis),
+                (AIR_24_US, "macbookair", check.is_macbook_us),
+                (PRO_US, "macbookpro", check.is_macbook_us),
+                (PRO_24_JIS, "macbookpro", check.is_macbook_jis),
+            ],
+        )
+        self.assertEqual(
+            [w["url"] for w in check.WATCHES],
+            [check.AIR_URL] * 3 + [check.PRO_URL] * 2,
+        )
+        self.assertEqual(check.PRO_URL, "https://www.apple.com/jp/shop/refurbished/mac/macbook-pro")
+        for w in check.WATCHES:
+            self.assertTrue(callable(w["specs"]))
+        self.assertTrue(check.WATCHES[0]["header"].startswith("⭐ **【本命】"))
+        self.assertTrue(check.WATCHES[1]["header"].startswith("⭐ **【本命】"))
+        self.assertIn("メモリ24GB以上・USキーボードの整備済MacBook Air", check.WATCHES[2]["header"])
+        self.assertIn("14インチ・M5以降・USキーボードの整備済MacBook Pro", check.WATCHES[3]["header"])
+        self.assertIn("メモリ24GB以上・JISキーボードの整備済MacBook Pro", check.WATCHES[4]["header"])
+
+    def test_air_main_spec_is_exactly_32gb_1tb_13inch(self):
+        self.assertTrue(check.specs_air_main(air_with()))
         for screen in ("13inch", "13.3inch", "13.6inch"):
             with self.subTest(screen=screen):
-                self.assertTrue(check.matches_specs(air_with(screen=screen)))
-
-    def test_memory_must_be_exactly_32gb(self):
-        for memory in ("8gb", "16gb", "24gb", "64gb", None, "unknown"):
+                self.assertTrue(check.specs_air_main(air_with(screen=screen)))
+        for memory in ("16gb", "24gb", "64gb", None, "unknown"):
             with self.subTest(memory=memory):
-                self.assertFalse(check.matches_specs(air_with(memory=memory)))
-
-    def test_storage_must_be_exactly_1tb(self):
-        # 512GB・2TBは対象外。値が無い・不明な場合も対象外（推測しない）
-        for storage in ("256gb", "512gb", "2tb", "4tb", None, "", "unknown"):
+                self.assertFalse(check.specs_air_main(air_with(memory=memory)))
+        for storage in ("512gb", "2tb", None, "", "unknown"):
             with self.subTest(storage=storage):
-                self.assertFalse(check.matches_specs(air_with(storage=storage)))
+                self.assertFalse(check.specs_air_main(air_with(storage=storage)))
 
-    def test_only_13_inch_air_screen_matches(self):
-        for screen in ("14inch", "14.2inch", "15inch", "15.3inch", "16inch", None):
-            with self.subTest(screen=screen):
-                self.assertFalse(check.matches_specs(air_with(screen=screen)))
+    def test_air_24gb_plus_excludes_main_and_requires_known_memory(self):
+        for memory, storage, expected in (
+            ("24gb", "512gb", True), ("24gb", "1tb", True), ("24gb", None, True),  # SSDは不問（不明でも可）
+            ("32gb", "512gb", True), ("32gb", "2tb", True), ("32gb", None, True),  # 32GBでも1TB以外は「本命ではない」
+            ("64gb", "1tb", True),
+            ("32gb", "1tb", False),  # 本命はウォッチ1・2が担当
+            ("16gb", "1tb", False), ("8gb", "512gb", False), (None, "1tb", False), ("unknown", "1tb", False),
+        ):
+            with self.subTest(memory=memory, storage=storage):
+                self.assertEqual(check.specs_air_24gb_plus(air_with(memory=memory, storage=storage)), expected)
 
-    def test_pro_is_never_matched_even_with_target_configuration(self):
-        # 14インチProは2026-11-17に監視停止。32GB/1TBでも通知対象にしない
-        tile = pro_tile()
-        self.assertEqual(tile["filters"]["dimensions"]["tsMemorySize"], "32gb")
-        self.assertEqual(tile["filters"]["dimensions"]["dimensionCapacity"], "1tb")
-        self.assertFalse(check.matches_specs(tile))
-        for screen in ("13inch", "14inch", "14.2inch", "16inch"):
-            tile["filters"]["dimensions"]["dimensionScreensize"] = screen
+    def test_pro_specs(self):
+        # ウォッチ4: 14インチProはメモリ不問（読めなくても可）。ウォッチ5: 24GB以上
+        for memory, any_expected, plus_expected in (
+            ("16gb", True, False), ("24gb", True, True), ("32gb", True, True), ("64gb", True, True),
+            (None, True, False), ("unknown", True, False),
+        ):
+            with self.subTest(memory=memory):
+                tile = pro_with(memory=memory)
+                self.assertEqual(check.specs_pro14_any(tile), any_expected)
+                self.assertEqual(check.specs_pro14_24gb_plus(tile), plus_expected)
+
+    def test_screen_size_limits(self):
+        for screen, air, pro in (
+            ("13inch", True, False), ("13.6inch", True, False), ("14inch", False, True), ("14.2inch", False, True),
+            ("15inch", False, False), ("15.3inch", False, False), ("16inch", False, False), (None, False, False),
+        ):
             with self.subTest(screen=screen):
-                self.assertFalse(check.matches_specs(tile))
+                self.assertEqual(check.specs_air_main(air_with(screen=screen)), air)
+                self.assertEqual(check.specs_air_24gb_plus(air_with(memory="24gb", screen=screen)), air)
+                self.assertEqual(check.specs_pro14_any(pro_with(screen=screen)), pro)
+                self.assertEqual(check.specs_pro14_24gb_plus(pro_with(memory="24gb", screen=screen)), pro)
 
     def test_m5_or_later_including_future_generations(self):
         for chip, expected in (("M1", False), ("M4", False), ("M4 Max", False), ("M5", True), ("M5 Pro", True), ("M5 Max", True), ("M6", True), ("M10", True), ("Intel", False), ("", False)):
             with self.subTest(chip=chip):
-                self.assertEqual(check.matches_specs(air_with(chip=chip)), expected)
+                self.assertEqual(check.specs_air_main(air_with(chip=chip)), expected)
+                self.assertEqual(check.specs_air_24gb_plus(air_with(memory="24gb", chip=chip)), expected)
+                self.assertEqual(check.specs_pro14_any(pro_with(chip=chip)), expected)
+                self.assertEqual(check.specs_pro14_24gb_plus(pro_with(memory="24gb", chip=chip)), expected)
 
-    def test_m4_32gb_1tb_is_rejected_and_m6_air_is_accepted(self):
-        self.assertFalse(check.matches_specs(air_with(chip="M4")))
-        self.assertTrue(check.matches_specs(air_with(chip="M6")))
+    def test_other_models_never_match(self):
+        mini = mini_tile()
+        mini["filters"]["dimensions"].update(dimensionScreensize="13inch", tsMemorySize="32gb", dimensionCapacity="1tb")
+        # Proタイルは画面・メモリが合ってもAir系に、Airタイルは Pro系に合わない
+        self.assertFalse(check.specs_air_main(pro_with(screen="13inch", memory="32gb")))
+        self.assertFalse(check.specs_pro14_any(air_with(screen="14inch")))
+        self.assertFalse(check.matches_specs(mini))
+
+    def test_matches_specs_is_any_watch_condition(self):
+        self.assertTrue(check.matches_specs(air_with()))
+        self.assertTrue(check.matches_specs(air_with(memory="24gb")))
+        self.assertTrue(check.matches_specs(pro_with(memory="16gb")))
+        self.assertFalse(check.matches_specs(air_with(memory="16gb")))
+        self.assertFalse(check.matches_specs(pro_with(screen="16inch")))
+
+
+class WatchBoundaryTests(unittest.TestCase):
+    """5ウォッチを通した通知の境界（どのウォッチで通知されるか／されないか）。"""
+
+    def test_air_us_24gb_512gb_goes_to_watch3_only(self):
+        self.assertEqual(notified_by_watch([air_with(memory="24gb", storage="512gb", part="A")]), {AIR_24_US: {"A"}})
+
+    def test_air_us_main_goes_to_watch1_only_not_watch3(self):
+        self.assertEqual(notified_by_watch([air_with(part="A")]), {AIR_MAIN_US: {"A"}})
+
+    def test_air_jis_main_goes_to_watch2_only(self):
+        self.assertEqual(notified_by_watch([air_with(kb="JIS", part="A")]), {AIR_MAIN_JIS: {"A"}})
+
+    def test_air_jis_24gb_is_not_notified(self):
+        self.assertEqual(notified_by_watch([air_with(memory="24gb", kb="JIS")]), {})
+
+    def test_air_us_16gb_is_not_notified(self):
+        self.assertEqual(notified_by_watch([air_with(memory="16gb")]), {})
+
+    def test_pro_us_16gb_goes_to_watch4(self):
+        self.assertEqual(notified_by_watch([pro_with(memory="16gb", part="P")]), {PRO_US: {"P"}})
+
+    def test_pro_jis_16gb_is_not_notified(self):
+        self.assertEqual(notified_by_watch([pro_with(memory="16gb", kb="JIS")]), {})
+
+    def test_pro_jis_24gb_goes_to_watch5(self):
+        self.assertEqual(notified_by_watch([pro_with(memory="24gb", kb="JIS", part="P")]), {PRO_24_JIS: {"P"}})
+
+    def test_pro_us_32gb_goes_to_watch4_only(self):
+        self.assertEqual(notified_by_watch([pro_with(memory="32gb", part="P")]), {PRO_US: {"P"}})
+
+    def test_16inch_pro_15inch_air_and_m4_are_not_notified(self):
+        tiles = [
+            pro_with(memory="32gb", screen="16inch"), pro_with(memory="32gb", screen="16inch", kb="JIS"),
+            air_with(screen="15inch"), air_with(screen="15inch", kb="JIS"),
+            air_with(chip="M4"), air_with(memory="24gb", chip="M4"), pro_with(chip="M4"), pro_with(memory="24gb", chip="M4", kb="JIS"),
+            mini_tile(),
+        ]
+        self.assertEqual(notified_by_watch(tiles), {})
+
+    def test_no_listing_is_notified_twice(self):
+        # 全パターンを並べ、同じpartが複数のウォッチで通知されないこと
+        tiles = [
+            air_with(part="A_MAIN_US"), air_with(kb="JIS", part="A_MAIN_JIS"),
+            air_with(memory="24gb", storage="512gb", part="A_24_US"), air_with(memory="32gb", storage="512gb", part="A_32_512_US"),
+            air_with(memory="24gb", kb="JIS", part="A_24_JIS"),
+            pro_with(memory="16gb", part="P_16_US"), pro_with(memory="32gb", part="P_32_US"),
+            pro_with(memory="24gb", kb="JIS", part="P_24_JIS"), pro_with(memory="16gb", kb="JIS", part="P_16_JIS"),
+        ]
+        result = notified_by_watch(tiles)
+        self.assertEqual(result, {
+            AIR_MAIN_US: {"A_MAIN_US"}, AIR_MAIN_JIS: {"A_MAIN_JIS"},
+            AIR_24_US: {"A_24_US", "A_32_512_US"}, PRO_US: {"P_16_US", "P_32_US"}, PRO_24_JIS: {"P_24_JIS"},
+        })
+        all_parts = [p for parts in result.values() for p in parts]
+        self.assertEqual(len(all_parts), len(set(all_parts)))
 
     def test_rejected_specs_never_fetch_detail_or_notify(self):
-        tiles = [
-            air_with(memory="24gb"), air_with(memory="16gb"),
-            air_with(storage="512gb"), air_with(storage="2tb"), air_with(storage=None),
-            air_with(screen="15inch"), air_with(chip="M4"),
-            pro_tile(), pro_tile("PRO2"),
-        ]
-        with mock.patch("check.fetch_tiles", return_value=tiles), mock.patch("check.load_state", return_value={"items": {}, "kb": {}}):
-            with mock.patch("check.fetch_product_page") as detail, mock.patch("check.notify_discord") as notify, mock.patch("check.save_state"):
-                check.main()
-                detail.assert_not_called()
-                notify.assert_not_called()
+        # スペック条件に合わないタイルは、配列判定（詳細ページ取得）に進まない。
+        # 配列表記の無いタイトルにして、判定に進めば必ず詳細ページを取りに行く状況にしている
+        def plain(tile):
+            tile["title"] = tile["title"].rsplit(" - ", 1)[0]
+            return tile
 
-    def test_watches_only_contain_air_us_and_jis(self):
-        self.assertEqual([w["model"] for w in check.WATCHES], ["macbookair", "macbookair"])
-        self.assertEqual([w["matches"] for w in check.WATCHES], [check.is_macbook_us, check.is_macbook_jis])
-        for w in check.WATCHES:
-            self.assertIn("32GB", w["header"])
-            self.assertIn("1TB", w["header"])
-            self.assertNotIn("Pro", w["header"])
+        tiles = [
+            plain(air_with(memory="16gb")), plain(air_with(memory=None)), plain(air_with(screen="15inch")),
+            plain(air_with(chip="M4")), plain(pro_with(screen="16inch")), plain(pro_with(chip="M4")),
+            mini_tile(),
+        ]
+        notified, _, detail_calls = run_main({check.AIR_URL: tiles, check.PRO_URL: tiles})
+        self.assertEqual(notified, [])
+        self.assertEqual(detail_calls, 0)
+
+    def test_matching_spec_without_keyboard_label_does_fetch_detail(self):
+        # 対照実験: スペックが合えば（配列表記が無い場合）詳細ページを取りに行く
+        tile = air_with(part="A")
+        tile["title"] = tile["title"].rsplit(" - ", 1)[0]
+        _, _, detail_calls = run_main({check.AIR_URL: [tile], check.PRO_URL: []})
+        self.assertEqual(detail_calls, 1)
+
+    def test_main_fetches_air_and_pro_pages_once_each(self):
+        _, fetched, _ = run_main({check.AIR_URL: [], check.PRO_URL: []})
+        self.assertEqual(sorted(fetched), sorted([check.AIR_URL, check.PRO_URL]))
+
+
 class StateTests(unittest.TestCase):
     def test_legacy_boolean_cache_is_migrated_without_assuming_false_is_jis(self):
         state = {"items": {}, "kb": {"US": True, "NON_US": False, "JIS": "jis"}}
@@ -302,31 +471,36 @@ class StateTests(unittest.TestCase):
                 self.assertTrue(check.is_macbook_jis(air_tile(), kb))
                 fetch.assert_called_once()
 
-    def test_mixed_catalog_notifies_air_us_jis_once_and_ignores_pro(self):
-        air_us = air_tile("AIR_US", "MacBook Air - USキーボード")
-        air_jis = air_tile("AIR_JIS", "MacBook Air - JISキーボード")
-        pro_us = pro_tile("PRO_US", "MacBook Pro - USキーボード")
-        pro_jis = pro_tile("PRO_JIS", "MacBook Pro - JISキーボード")
-        tiles = [air_us, air_jis, pro_us, pro_jis, mini_tile()]
+    def test_mixed_catalog_notifies_each_listing_once_then_renotifies_on_restock(self):
+        air_us = air_with(part="AIR_US")
+        air_jis = air_with(kb="JIS", part="AIR_JIS")
+        air_24 = air_with(memory="24gb", part="AIR_24")
+        pro_us = pro_with(memory="16gb", part="PRO_US")
+        pro_jis_24 = pro_with(memory="24gb", kb="JIS", part="PRO_JIS24")
+        pro_jis_16 = pro_with(memory="16gb", kb="JIS", part="PRO_JIS16")  # 通知対象外
+        air_tiles = [air_us, air_jis, air_24, mini_tile()]
+        pro_tiles = [pro_us, pro_jis_24, pro_jis_16]
+        pages = {check.AIR_URL: air_tiles, check.PRO_URL: pro_tiles}
+        expected_parts = [{"AIR_US"}, {"AIR_JIS"}, {"AIR_24"}, {"PRO_US"}, {"PRO_JIS24"}]
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(check, "STATE_FILE", os.path.join(tmp, "state.json")):
-            with mock.patch("check.fetch_tiles", return_value=tiles) as fetch, mock.patch("check.notify_discord") as notify:
+            with mock.patch("check.fetch_tiles", side_effect=lambda url: pages[url]) as fetch, mock.patch("check.notify_discord") as notify:
                 check.main()
-                # 監視URLはAirページ1つだけ（Proページはもう取得しない）
-                self.assertEqual(fetch.call_count, 1)
-                self.assertEqual([set(c.args[0]) for c in notify.call_args_list], [{"AIR_US"}, {"AIR_JIS"}])
-                self.assertIn("JIS", notify.call_args_list[1].args[1])
-                self.assertNotIn("MacBook Pro", notify.call_args_list[1].args[1])
-                self.assertEqual(set(check.load_state()["items"]), {"AIR_US", "AIR_JIS"})
+                self.assertEqual(fetch.call_count, 2)  # AirページとProページ
+                self.assertEqual([set(c.args[0]) for c in notify.call_args_list], expected_parts)
+                self.assertEqual([c.args[1] for c in notify.call_args_list], [w["header"] for w in check.WATCHES])
+                self.assertEqual(set(check.load_state()["items"]), {"AIR_US", "AIR_JIS", "AIR_24", "PRO_US", "PRO_JIS24"})
                 notify.reset_mock()
                 check.main()
                 notify.assert_not_called()
                 # 在庫が消えてから戻った商品は再入荷通知する。
-                fetch.return_value = [air_us, pro_us]
+                pages[check.AIR_URL] = [air_us]
+                pages[check.PRO_URL] = []
                 check.main()
                 notify.assert_not_called()
-                fetch.return_value = tiles
+                pages[check.AIR_URL] = air_tiles
+                pages[check.PRO_URL] = pro_tiles
                 check.main()
-                self.assertEqual([set(c.args[0]) for c in notify.call_args_list], [{"AIR_JIS"}])
+                self.assertEqual([set(c.args[0]) for c in notify.call_args_list], expected_parts[1:])
 
     def test_load_new_state_keeps_items_and_keyboard_cache(self):
         state = {
@@ -408,21 +582,26 @@ class StateTests(unittest.TestCase):
 
         self.assertEqual(saved["items"], {})
 
-    def test_pro_and_non_target_air_in_old_state_are_dropped_without_notification(self):
-        # 監視停止したPro（14インチ）や条件外のAir（24GB）が旧stateに残っていても、
-        # 一覧に載り続けていて通知されず、次回保存で消えること。条件内のAirだけが残る
-        pro = pro_tile("OLD_PRO", "MacBook Pro - USキーボード")
-        air24 = air_with(memory="24gb")
-        air24["partNumber"] = "OLD_AIR24"
-        target = air_tile("TARGET_AIR", "MacBook Air - USキーボード")
+    def test_out_of_scope_listings_in_old_state_are_dropped_without_notification(self):
+        # 旧stateに残っている条件外の出品（16GBのAir・24GBのJIS Air・16インチPro・16GBのJIS Pro）は
+        # 一覧に載り続けていても通知されず、次回保存で消える。条件内の出品だけが残る
+        out_of_scope = [
+            air_with(memory="16gb", part="OLD_AIR16"),
+            air_with(memory="24gb", kb="JIS", part="OLD_AIR24_JIS"),
+            pro_with(memory="32gb", screen="16inch", part="OLD_PRO16IN"),
+            pro_with(memory="16gb", kb="JIS", part="OLD_PRO16_JIS"),
+        ]
+        in_scope = [air_with(part="TARGET_AIR"), pro_with(memory="16gb", part="TARGET_PRO")]
 
         def old_item(tile):
             return {"title": tile["title"], "price": tile["price"]["currentPrice"]["amount"], "url": "https://www.apple.com/jp/shop/product/x"}
 
         old_state = {
-            "items": {t["partNumber"]: old_item(t) for t in (pro, air24, target)},
-            "kb": {"OLD_PRO": "us", "TARGET_AIR": "us"},
+            "items": {t["partNumber"]: old_item(t) for t in out_of_scope + in_scope},
+            "kb": {},
         }
+        pages = {check.AIR_URL: [t for t in out_of_scope + in_scope if "MacBook Air" in t["title"]],
+                 check.PRO_URL: [t for t in out_of_scope + in_scope if "MacBook Pro" in t["title"]]}
 
         with tempfile.TemporaryDirectory() as temp_dir:
             state_file = os.path.join(temp_dir, "state.json")
@@ -430,7 +609,7 @@ class StateTests(unittest.TestCase):
                 json.dump(old_state, f, ensure_ascii=False)
 
             with mock.patch.object(check, "STATE_FILE", state_file):
-                with mock.patch("check.fetch_tiles", return_value=[pro, air24, target]):
+                with mock.patch("check.fetch_tiles", side_effect=lambda url: pages[url]):
                     with mock.patch("check.notify_discord") as notify:
                         check.main()
 
@@ -438,7 +617,7 @@ class StateTests(unittest.TestCase):
                 with open(state_file, encoding="utf-8") as f:
                     saved = json.load(f)
 
-        self.assertEqual(set(saved["items"]), {"TARGET_AIR"})
+        self.assertEqual(set(saved["items"]), {"TARGET_AIR", "TARGET_PRO"})
 
 
 if __name__ == "__main__":

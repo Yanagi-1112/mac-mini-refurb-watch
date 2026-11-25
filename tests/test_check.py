@@ -261,17 +261,17 @@ def notified_by_watch(tiles):
 
 AIR_MAIN_US = "MacBook Air 本命 (USキーボード)"
 AIR_MAIN_JIS = "MacBook Air 本命 (JISキーボード)"
-AIR_24_US = "MacBook Air 24GB以上 (USキーボード)"
-PRO_US = "MacBook Pro (USキーボード)"
-PRO_24_JIS = "MacBook Pro 24GB以上 (JISキーボード)"
+AIR_32_US = "MacBook Air 32GB以上 (USキーボード)"
+PRO_US = "MacBook Pro 32GB以上 (USキーボード)"
+PRO_32_JIS = "MacBook Pro 32GB以上 (JISキーボード)"
 
 
 class SpecificationTests(unittest.TestCase):
     def test_constants(self):
-        # 本命構成（13インチAir・32GB・1TB）と24GB以上の下限。変えるときはREADMEも直すこと
+        # 本命構成（13インチAir・32GB・1TB）と32GB以上の下限。変えるときはREADMEも直すこと
         self.assertEqual(check.TARGET_MEMORY_GB, 32)
         self.assertEqual(check.TARGET_STORAGE, "1tb")
-        self.assertEqual(check.MIN_MEMORY_GB, 24)
+        self.assertEqual(check.MIN_MEMORY_GB, 32)
 
     def test_tile_facts_reads_screen_memory_storage_chip(self):
         facts = check.tile_facts(air_with(memory="24gb", storage="512gb", screen="13.6inch", chip="M5 Pro"))
@@ -285,9 +285,9 @@ class SpecificationTests(unittest.TestCase):
             [
                 (AIR_MAIN_US, "macbookair", check.is_macbook_us),
                 (AIR_MAIN_JIS, "macbookair", check.is_macbook_jis),
-                (AIR_24_US, "macbookair", check.is_macbook_us),
+                (AIR_32_US, "macbookair", check.is_macbook_us),
                 (PRO_US, "macbookpro", check.is_macbook_us),
-                (PRO_24_JIS, "macbookpro", check.is_macbook_jis),
+                (PRO_32_JIS, "macbookpro", check.is_macbook_jis),
             ],
         )
         self.assertEqual(
@@ -299,9 +299,9 @@ class SpecificationTests(unittest.TestCase):
             self.assertTrue(callable(w["specs"]))
         self.assertTrue(check.WATCHES[0]["header"].startswith("⭐ **【本命】"))
         self.assertTrue(check.WATCHES[1]["header"].startswith("⭐ **【本命】"))
-        self.assertIn("メモリ24GB以上・USキーボードの整備済MacBook Air", check.WATCHES[2]["header"])
-        self.assertIn("14インチ・M5以降・USキーボードの整備済MacBook Pro", check.WATCHES[3]["header"])
-        self.assertIn("メモリ24GB以上・JISキーボードの整備済MacBook Pro", check.WATCHES[4]["header"])
+        self.assertIn("メモリ32GB以上・USキーボードの整備済MacBook Air", check.WATCHES[2]["header"])
+        self.assertIn("14インチ・M5以降・メモリ32GB以上・USキーボードの整備済MacBook Pro", check.WATCHES[3]["header"])
+        self.assertIn("メモリ32GB以上・JISキーボードの整備済MacBook Pro", check.WATCHES[4]["header"])
 
     def test_air_main_spec_is_exactly_32gb_1tb_13inch(self):
         self.assertTrue(check.specs_air_main(air_with()))
@@ -315,27 +315,24 @@ class SpecificationTests(unittest.TestCase):
             with self.subTest(storage=storage):
                 self.assertFalse(check.specs_air_main(air_with(storage=storage)))
 
-    def test_air_24gb_plus_excludes_main_and_requires_known_memory(self):
+    def test_air_min_memory_excludes_main_and_requires_known_memory(self):
         for memory, storage, expected in (
-            ("24gb", "512gb", True), ("24gb", "1tb", True), ("24gb", None, True),  # SSDは不問（不明でも可）
+            ("24gb", "512gb", False), ("24gb", "1tb", False), ("24gb", None, False),  # 24GBは対象外
             ("32gb", "512gb", True), ("32gb", "2tb", True), ("32gb", None, True),  # 32GBでも1TB以外は「本命ではない」
             ("64gb", "1tb", True),
             ("32gb", "1tb", False),  # 本命はウォッチ1・2が担当
             ("16gb", "1tb", False), ("8gb", "512gb", False), (None, "1tb", False), ("unknown", "1tb", False),
         ):
             with self.subTest(memory=memory, storage=storage):
-                self.assertEqual(check.specs_air_24gb_plus(air_with(memory=memory, storage=storage)), expected)
+                self.assertEqual(check.specs_air_min_memory(air_with(memory=memory, storage=storage)), expected)
 
     def test_pro_specs(self):
-        # ウォッチ4: 14インチProはメモリ不問（読めなくても可）。ウォッチ5: 24GB以上
-        for memory, any_expected, plus_expected in (
-            ("16gb", True, False), ("24gb", True, True), ("32gb", True, True), ("64gb", True, True),
-            (None, True, False), ("unknown", True, False),
+        # ウォッチ4・5共通: 14インチProは32GB以上（メモリ不明は対象外）
+        for memory, expected in (
+            ("16gb", False), ("24gb", False), ("32gb", True), ("64gb", True), (None, False), ("unknown", False),
         ):
             with self.subTest(memory=memory):
-                tile = pro_with(memory=memory)
-                self.assertEqual(check.specs_pro14_any(tile), any_expected)
-                self.assertEqual(check.specs_pro14_24gb_plus(tile), plus_expected)
+                self.assertEqual(check.specs_pro14_min_memory(pro_with(memory=memory)), expected)
 
     def test_screen_size_limits(self):
         for screen, air, pro in (
@@ -344,30 +341,31 @@ class SpecificationTests(unittest.TestCase):
         ):
             with self.subTest(screen=screen):
                 self.assertEqual(check.specs_air_main(air_with(screen=screen)), air)
-                self.assertEqual(check.specs_air_24gb_plus(air_with(memory="24gb", screen=screen)), air)
-                self.assertEqual(check.specs_pro14_any(pro_with(screen=screen)), pro)
-                self.assertEqual(check.specs_pro14_24gb_plus(pro_with(memory="24gb", screen=screen)), pro)
+                self.assertEqual(check.specs_air_min_memory(air_with(memory="32gb", storage="512gb", screen=screen)), air)
+                self.assertEqual(check.specs_pro14_min_memory(pro_with(memory="32gb", screen=screen)), pro)
 
     def test_m5_or_later_including_future_generations(self):
         for chip, expected in (("M1", False), ("M4", False), ("M4 Max", False), ("M5", True), ("M5 Pro", True), ("M5 Max", True), ("M6", True), ("M10", True), ("Intel", False), ("", False)):
             with self.subTest(chip=chip):
                 self.assertEqual(check.specs_air_main(air_with(chip=chip)), expected)
-                self.assertEqual(check.specs_air_24gb_plus(air_with(memory="24gb", chip=chip)), expected)
-                self.assertEqual(check.specs_pro14_any(pro_with(chip=chip)), expected)
-                self.assertEqual(check.specs_pro14_24gb_plus(pro_with(memory="24gb", chip=chip)), expected)
+                self.assertEqual(check.specs_air_min_memory(air_with(memory="32gb", storage="512gb", chip=chip)), expected)
+                self.assertEqual(check.specs_pro14_min_memory(pro_with(memory="32gb", chip=chip)), expected)
 
     def test_other_models_never_match(self):
         mini = mini_tile()
         mini["filters"]["dimensions"].update(dimensionScreensize="13inch", tsMemorySize="32gb", dimensionCapacity="1tb")
         # Proタイルは画面・メモリが合ってもAir系に、Airタイルは Pro系に合わない
         self.assertFalse(check.specs_air_main(pro_with(screen="13inch", memory="32gb")))
-        self.assertFalse(check.specs_pro14_any(air_with(screen="14inch")))
+        self.assertFalse(check.specs_pro14_min_memory(air_with(screen="14inch", memory="32gb")))
         self.assertFalse(check.matches_specs(mini))
 
     def test_matches_specs_is_any_watch_condition(self):
         self.assertTrue(check.matches_specs(air_with()))
-        self.assertTrue(check.matches_specs(air_with(memory="24gb")))
-        self.assertTrue(check.matches_specs(pro_with(memory="16gb")))
+        self.assertTrue(check.matches_specs(air_with(memory="32gb", storage="512gb")))
+        self.assertTrue(check.matches_specs(pro_with(memory="64gb")))
+        self.assertFalse(check.matches_specs(air_with(memory="24gb", storage="512gb")))
+        self.assertFalse(check.matches_specs(pro_with(memory="16gb")))
+        self.assertFalse(check.matches_specs(pro_with(memory=None)))
         self.assertFalse(check.matches_specs(air_with(memory="16gb")))
         self.assertFalse(check.matches_specs(pro_with(screen="16inch")))
 
@@ -375,8 +373,8 @@ class SpecificationTests(unittest.TestCase):
 class WatchBoundaryTests(unittest.TestCase):
     """5ウォッチを通した通知の境界（どのウォッチで通知されるか／されないか）。"""
 
-    def test_air_us_24gb_512gb_goes_to_watch3_only(self):
-        self.assertEqual(notified_by_watch([air_with(memory="24gb", storage="512gb", part="A")]), {AIR_24_US: {"A"}})
+    def test_air_us_32gb_512gb_goes_to_watch3_only(self):
+        self.assertEqual(notified_by_watch([air_with(memory="32gb", storage="512gb", part="A")]), {AIR_32_US: {"A"}})
 
     def test_air_us_main_goes_to_watch1_only_not_watch3(self):
         self.assertEqual(notified_by_watch([air_with(part="A")]), {AIR_MAIN_US: {"A"}})
@@ -384,20 +382,27 @@ class WatchBoundaryTests(unittest.TestCase):
     def test_air_jis_main_goes_to_watch2_only(self):
         self.assertEqual(notified_by_watch([air_with(kb="JIS", part="A")]), {AIR_MAIN_JIS: {"A"}})
 
-    def test_air_jis_24gb_is_not_notified(self):
+    def test_air_jis_non_main_is_not_notified(self):
+        self.assertEqual(notified_by_watch([air_with(memory="32gb", storage="512gb", kb="JIS")]), {})
         self.assertEqual(notified_by_watch([air_with(memory="24gb", kb="JIS")]), {})
 
-    def test_air_us_16gb_is_not_notified(self):
+    def test_air_us_24gb_and_16gb_are_not_notified(self):
+        self.assertEqual(notified_by_watch([air_with(memory="24gb", storage="512gb"), air_with(memory="24gb", storage="1tb")]), {})
         self.assertEqual(notified_by_watch([air_with(memory="16gb")]), {})
 
-    def test_pro_us_16gb_goes_to_watch4(self):
-        self.assertEqual(notified_by_watch([pro_with(memory="16gb", part="P")]), {PRO_US: {"P"}})
+    def test_pro_us_below_32gb_or_unknown_is_not_notified(self):
+        for memory in ("16gb", "24gb", None):
+            with self.subTest(memory=memory):
+                self.assertEqual(notified_by_watch([pro_with(memory=memory)]), {})
 
-    def test_pro_jis_16gb_is_not_notified(self):
-        self.assertEqual(notified_by_watch([pro_with(memory="16gb", kb="JIS")]), {})
+    def test_pro_jis_below_32gb_is_not_notified(self):
+        self.assertEqual(notified_by_watch([pro_with(memory="16gb", kb="JIS"), pro_with(memory="24gb", kb="JIS")]), {})
 
-    def test_pro_jis_24gb_goes_to_watch5(self):
-        self.assertEqual(notified_by_watch([pro_with(memory="24gb", kb="JIS", part="P")]), {PRO_24_JIS: {"P"}})
+    def test_pro_us_64gb_goes_to_watch4_only(self):
+        self.assertEqual(notified_by_watch([pro_with(memory="64gb", part="P")]), {PRO_US: {"P"}})
+
+    def test_pro_jis_64gb_goes_to_watch5_only(self):
+        self.assertEqual(notified_by_watch([pro_with(memory="64gb", kb="JIS", part="P")]), {PRO_32_JIS: {"P"}})
 
     def test_pro_us_32gb_goes_to_watch4_only(self):
         self.assertEqual(notified_by_watch([pro_with(memory="32gb", part="P")]), {PRO_US: {"P"}})
@@ -406,7 +411,7 @@ class WatchBoundaryTests(unittest.TestCase):
         tiles = [
             pro_with(memory="32gb", screen="16inch"), pro_with(memory="32gb", screen="16inch", kb="JIS"),
             air_with(screen="15inch"), air_with(screen="15inch", kb="JIS"),
-            air_with(chip="M4"), air_with(memory="24gb", chip="M4"), pro_with(chip="M4"), pro_with(memory="24gb", chip="M4", kb="JIS"),
+            air_with(chip="M4"), air_with(memory="32gb", storage="512gb", chip="M4"), pro_with(chip="M4"), pro_with(memory="64gb", chip="M4", kb="JIS"),
             mini_tile(),
         ]
         self.assertEqual(notified_by_watch(tiles), {})
@@ -416,14 +421,15 @@ class WatchBoundaryTests(unittest.TestCase):
         tiles = [
             air_with(part="A_MAIN_US"), air_with(kb="JIS", part="A_MAIN_JIS"),
             air_with(memory="24gb", storage="512gb", part="A_24_US"), air_with(memory="32gb", storage="512gb", part="A_32_512_US"),
-            air_with(memory="24gb", kb="JIS", part="A_24_JIS"),
-            pro_with(memory="16gb", part="P_16_US"), pro_with(memory="32gb", part="P_32_US"),
-            pro_with(memory="24gb", kb="JIS", part="P_24_JIS"), pro_with(memory="16gb", kb="JIS", part="P_16_JIS"),
+            air_with(memory="64gb", storage="2tb", part="A_64_US"),
+            air_with(memory="32gb", storage="512gb", kb="JIS", part="A_32_512_JIS"),
+            pro_with(memory="16gb", part="P_16_US"), pro_with(memory="24gb", part="P_24_US"), pro_with(memory="32gb", part="P_32_US"),
+            pro_with(memory="64gb", kb="JIS", part="P_64_JIS"), pro_with(memory="24gb", kb="JIS", part="P_24_JIS"),
         ]
         result = notified_by_watch(tiles)
         self.assertEqual(result, {
             AIR_MAIN_US: {"A_MAIN_US"}, AIR_MAIN_JIS: {"A_MAIN_JIS"},
-            AIR_24_US: {"A_24_US", "A_32_512_US"}, PRO_US: {"P_16_US", "P_32_US"}, PRO_24_JIS: {"P_24_JIS"},
+            AIR_32_US: {"A_32_512_US", "A_64_US"}, PRO_US: {"P_32_US"}, PRO_32_JIS: {"P_64_JIS"},
         })
         all_parts = [p for parts in result.values() for p in parts]
         self.assertEqual(len(all_parts), len(set(all_parts)))
@@ -474,10 +480,10 @@ class StateTests(unittest.TestCase):
     def test_mixed_catalog_notifies_each_listing_once_then_renotifies_on_restock(self):
         air_us = air_with(part="AIR_US")
         air_jis = air_with(kb="JIS", part="AIR_JIS")
-        air_24 = air_with(memory="24gb", part="AIR_24")
-        pro_us = pro_with(memory="16gb", part="PRO_US")
-        pro_jis_24 = pro_with(memory="24gb", kb="JIS", part="PRO_JIS24")
-        pro_jis_16 = pro_with(memory="16gb", kb="JIS", part="PRO_JIS16")  # 通知対象外
+        air_24 = air_with(memory="32gb", storage="512gb", part="AIR_24")
+        pro_us = pro_with(memory="32gb", part="PRO_US")
+        pro_jis_24 = pro_with(memory="64gb", kb="JIS", part="PRO_JIS24")
+        pro_jis_16 = pro_with(memory="24gb", kb="JIS", part="PRO_JIS16")  # 通知対象外
         air_tiles = [air_us, air_jis, air_24, mini_tile()]
         pro_tiles = [pro_us, pro_jis_24, pro_jis_16]
         pages = {check.AIR_URL: air_tiles, check.PRO_URL: pro_tiles}
@@ -583,15 +589,18 @@ class StateTests(unittest.TestCase):
         self.assertEqual(saved["items"], {})
 
     def test_out_of_scope_listings_in_old_state_are_dropped_without_notification(self):
-        # 旧stateに残っている条件外の出品（16GBのAir・24GBのJIS Air・16インチPro・16GBのJIS Pro）は
+        # 旧stateに残っている条件外の出品（16GB/24GBのAir・JIS Air・32GB未満のUS Pro・16インチPro・24GBのJIS Pro）は
         # 一覧に載り続けていても通知されず、次回保存で消える。条件内の出品だけが残る
         out_of_scope = [
             air_with(memory="16gb", part="OLD_AIR16"),
+            air_with(memory="24gb", storage="512gb", part="OLD_AIR24_US"),
             air_with(memory="24gb", kb="JIS", part="OLD_AIR24_JIS"),
+            pro_with(memory="16gb", part="OLD_PRO16_US"),
+            pro_with(memory="24gb", part="OLD_PRO24_US"),
             pro_with(memory="32gb", screen="16inch", part="OLD_PRO16IN"),
-            pro_with(memory="16gb", kb="JIS", part="OLD_PRO16_JIS"),
+            pro_with(memory="24gb", kb="JIS", part="OLD_PRO24_JIS"),
         ]
-        in_scope = [air_with(part="TARGET_AIR"), pro_with(memory="16gb", part="TARGET_PRO")]
+        in_scope = [air_with(part="TARGET_AIR"), pro_with(memory="32gb", part="TARGET_PRO")]
 
         def old_item(tile):
             return {"title": tile["title"], "price": tile["price"]["currentPrice"]["amount"], "url": "https://www.apple.com/jp/shop/product/x"}

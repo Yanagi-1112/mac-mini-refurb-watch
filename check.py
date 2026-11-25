@@ -3,14 +3,15 @@
 監視対象（互いに重ならない5つのウォッチ。共通条件は「M5以降」。メモリ・画面サイズが読めないものは対象外）:
   1. MacBook Air 本命 US配列 : 13インチ・メモリ32GB・SSD 1TB
   2. MacBook Air 本命 JIS配列: 同上
-  3. MacBook Air 24GB以上 US配列: 13インチ・メモリ24GB以上で、本命（32GB/1TB）ではないもの（SSD不問）
-  4. MacBook Pro US配列  : 14インチ・メモリ不問
-  5. MacBook Pro JIS配列 : 14インチ・メモリ24GB以上
+  3. MacBook Air 32GB以上 US配列: 13インチ・メモリ32GB以上で、本命（32GB/1TB）ではないもの（SSD不問）
+  4. MacBook Pro US配列  : 14インチ・メモリ32GB以上
+  5. MacBook Pro JIS配列 : 14インチ・メモリ32GB以上
 
 経緯: 2026-11-17に購入構成を「13インチAir・32GB・1TB」の1つに絞ったが、
 2026-11-23にユーザーが「本命より少し条件の低いものも知りたい」と希望したため、近い構成も通知するよう拡張した。
 本命だけは見出しに⭐【本命】を付けて見分けられるようにしている。
-JISのAirで本命以外（24GBなど）、JISのProで24GB未満、15インチAir・16インチPro、M4以前は通知しない。
+2026-11-25にユーザーの希望で全ウォッチのメモリ下限を32GB以上に引き上げた（Proのメモリ不問も廃止）。
+32GB未満、JISのAirで本命以外、15インチAir・16インチPro、M4以前は通知しない。
 
 Mac mini監視は2026-08-26に停止（M6搭載の新型が発売され整備済品を待つ必要がなくなったため）。
 復活させる場合はgit履歴の is_mac_mini と WATCHES のMac miniエントリを参照。
@@ -41,12 +42,12 @@ JIS_KEYBOARD_RE = re.compile(r"(JIS|ＪＩＳ|日本語)[^、。]{0,12}キーボ
 
 
 # 「本命」の購入構成（ユーザーが13インチAir・32GB・1TBに決めたため。2026-11-17）。
-# 2026-11-23に「本命より少し条件の低いものも知りたい」との希望で、近い構成（24GB以上のUS配列Air・14インチPro）も
+# 2026-11-23に「本命より少し条件の低いものも知りたい」との希望で、近い構成（US配列Air・14インチPro）も
 # 別ウォッチとして通知するようにした。本命はこの2つ「ちょうど一致」で判定し、他のウォッチと重複通知しない基準にも使う。
 # 値はAppleの一覧JSONの表記（小文字）に合わせる。変えたい場合は下の定数を書き換えるだけでよい。
 TARGET_MEMORY_GB = 32  # 本命: tsMemorySize が "32gb" のものだけ
 TARGET_STORAGE = "1tb"  # 本命: filters.dimensions.dimensionCapacity が "1tb" のものだけ
-MIN_MEMORY_GB = 24  # 「条件を少し下げた」ウォッチの下限（24GB以上。16GB以下は通知しない）
+MIN_MEMORY_GB = 32  # 本命以外のウォッチ（3〜5）の下限（32GB以上。24GB以下・メモリ不明は通知しない）
 MIN_CHIP_GENERATION = 5  # M5以降（M5 Pro/Max・M6以降も含む。チップ世代の数字で判定）
 
 
@@ -176,21 +177,16 @@ def specs_air_main(tile):
     return ok and _is_main_config(f)
 
 
-def specs_air_24gb_plus(tile):
-    # ウォッチ3: 13インチAir・24GB以上。本命は別ウォッチで通知するので除く（1出品が2回通知されないように）。
+def specs_air_min_memory(tile):
+    # ウォッチ3: 13インチAir・32GB以上。本命は別ウォッチで通知するので除く（1出品が2回通知されないように）。
     # SSD容量は不問（不明でも可）。メモリが読めないものは対象外
     ok, f = _is_target(tile, "macbookair", 13)
     return ok and f["memory"] is not None and f["memory"] >= MIN_MEMORY_GB and not _is_main_config(f)
 
 
-def specs_pro14_any(tile):
-    # ウォッチ4: 14インチPro。メモリ不問（メモリ値が読めなくても可）
-    ok, _ = _is_target(tile, "macbookpro", 14)
-    return ok
-
-
-def specs_pro14_24gb_plus(tile):
-    # ウォッチ5: 14インチPro・24GB以上
+def specs_pro14_min_memory(tile):
+    # ウォッチ4・5: 14インチPro・32GB以上（メモリが読めないものは対象外）。
+    # US/JISの振り分けはキーボード配列の判定で行うので、2ウォッチで同じ条件を共用しても重複通知にならない
     ok, f = _is_target(tile, "macbookpro", 14)
     return ok and f["memory"] is not None and f["memory"] >= MIN_MEMORY_GB
 
@@ -263,27 +259,27 @@ WATCHES = [
         "matches": is_macbook_jis,
     },
     {
-        "name": "MacBook Air 24GB以上 (USキーボード)",
+        "name": "MacBook Air 32GB以上 (USキーボード)",
         "model": "macbookair",
         "url": AIR_URL,
-        "header": "⌨️ **13インチ・M5以降・メモリ24GB以上・USキーボードの整備済MacBook Airが出品されました！**",
-        "specs": specs_air_24gb_plus,
+        "header": "⌨️ **13インチ・M5以降・メモリ32GB以上・USキーボードの整備済MacBook Airが出品されました！**",
+        "specs": specs_air_min_memory,
         "matches": is_macbook_us,
     },
     {
-        "name": "MacBook Pro (USキーボード)",
+        "name": "MacBook Pro 32GB以上 (USキーボード)",
         "model": "macbookpro",
         "url": PRO_URL,
-        "header": "💻 **14インチ・M5以降・USキーボードの整備済MacBook Proが出品されました！**",
-        "specs": specs_pro14_any,
+        "header": "💻 **14インチ・M5以降・メモリ32GB以上・USキーボードの整備済MacBook Proが出品されました！**",
+        "specs": specs_pro14_min_memory,
         "matches": is_macbook_us,
     },
     {
-        "name": "MacBook Pro 24GB以上 (JISキーボード)",
+        "name": "MacBook Pro 32GB以上 (JISキーボード)",
         "model": "macbookpro",
         "url": PRO_URL,
-        "header": "💻 **14インチ・M5以降・メモリ24GB以上・JISキーボードの整備済MacBook Proが出品されました！**",
-        "specs": specs_pro14_24gb_plus,
+        "header": "💻 **14インチ・M5以降・メモリ32GB以上・JISキーボードの整備済MacBook Proが出品されました！**",
+        "specs": specs_pro14_min_memory,
         "matches": is_macbook_jis,
     },
 ]

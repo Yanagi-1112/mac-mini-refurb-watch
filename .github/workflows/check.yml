@@ -15,6 +15,10 @@ on:
         description: "USキーボード出品時のド派手な通知の表示例をDiscordに送る"
         type: boolean
         default: false
+      test_main_alert:
+        description: "本命（13インチAir・32GB・1TB）出品時の通知の表示例をDiscordに送る"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -46,6 +50,13 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           python -c "import check; check.notify_discord({'SAMPLE_US': {'title': '表示例', 'price': '（表示例・実際の出品ではありません）297,800円', 'url': 'https://www.apple.com/jp/shop/refurbished/mac/macbook-air', 'specs': {'model': 'MacBook Air', 'screen': '13インチ', 'chip': 'M5', 'cpu_cores': 10, 'gpu_cores': 10, 'memory': '32GB', 'storage': '1TB', 'keyboard': 'US配列', 'color': 'シルバー', 'nano_texture': False}}}, '🧪 **テスト：USキーボードが出品されたときの表示例です（実際の出品ではありません）**')"
+
+      - name: Test main config alert
+        if: ${{ inputs.test_main_alert }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "import check; check.notify_discord({'SAMPLE_MAIN': {'title': '表示例', 'price': '（表示例・実際の出品ではありません）297,800円', 'url': 'https://www.apple.com/jp/shop/refurbished/mac/macbook-air', 'specs': {'model': 'MacBook Air', 'screen': '13インチ', 'chip': 'M5', 'cpu_cores': 10, 'gpu_cores': 10, 'memory': '32GB', 'storage': '1TB', 'keyboard': 'JIS配列（日本語）', 'color': 'シルバー', 'nano_texture': False}}}, '🧪 **テスト：本命が出品されたときの表示例です（実際の出品ではありません）**', main=True)"
 
       - name: Run checker
         env:

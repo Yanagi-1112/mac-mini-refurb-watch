@@ -209,6 +209,14 @@ US_TITLE_PREFIX = "🚨🇺🇸【USキーボード】🇺🇸🚨 "
 US_ALERT_HEADING = "# 🚨🚨🚨 USキーボードの整備済MacBookが出ました！ 🚨🚨🚨\n## 🇺🇸 めったに出ないので今すぐ確認を！ 🇺🇸\n"
 
 
+# 「本命」（13インチAir・32GB・1TB）の出品は数時間で売り切れることがある（2026-11-25に実例）ので、こちらも目立たせる。
+# embedの色を金色にし、タイトル先頭に冠を付け、メッセージ本文の先頭に大見出しを付ける。
+# US配列の本命は、US用の見出しも重ねて付け、色はUSの赤を優先する。
+MAIN_ALERT_COLOR = 0xFFD700
+MAIN_TITLE_PREFIX = "👑⭐【本命】⭐👑 "
+MAIN_ALERT_HEADING = "# 👑⭐ 本命のMacBook Airが出ました！ ⭐👑\n## 13インチ・M5以降・32GB・1TB ── 売り切れる前に今すぐ確認を！\n"
+
+
 def is_us_item(item):
     specs = item.get("specs") or {}
     return specs.get("keyboard") == KEYBOARD_LABELS["us"]
@@ -261,6 +269,7 @@ WATCHES = [
         "header": "⭐ **【本命】13インチ・M5以降・メモリ32GB・SSD 1TB・USキーボードの整備済MacBook Airが出品されました！**",
         "specs": specs_air_main,
         "matches": is_macbook_us,
+        "main": True,
     },
     {
         "name": "MacBook Air 本命 (JISキーボード)",
@@ -269,6 +278,7 @@ WATCHES = [
         "header": "⭐ **【本命】13インチ・M5以降・メモリ32GB・SSD 1TB・JISキーボードの整備済MacBook Airが出品されました！**",
         "specs": specs_air_main,
         "matches": is_macbook_jis,
+        "main": True,
     },
     {
         "name": "MacBook Air 32GB以上 (USキーボード)",
@@ -365,7 +375,7 @@ def save_state(state):
         f.write("\n")
 
 
-def item_embed(item):
+def item_embed(item, main=False):
     """1出品ぶんのDiscord embedを作る。
 
     タイトル（=リンク）に「機種・チップ・メモリ・ストレージ・配列」を並べ、
@@ -414,6 +424,9 @@ def item_embed(item):
     title = "｜".join(summary)
     description = f"💴 **{item['price']}**　👉 タイトルをクリックで商品ページへ"
     keyboard_text = specs.get("keyboard") or unknown
+    if main:
+        title = MAIN_TITLE_PREFIX + title
+        description = "👑 **本命の構成です！売り切れる前にすぐ確認を！** 👑\n" + description
     if us:
         title = US_TITLE_PREFIX + title
         description = "🚨 **USキーボードの出品です！売り切れる前にすぐ確認を！** 🚨\n" + description
@@ -424,7 +437,7 @@ def item_embed(item):
         "title": title[:256],
         "url": item["url"],
         "description": description,
-        "color": US_ALERT_COLOR if us else NORMAL_COLOR,
+        "color": US_ALERT_COLOR if us else MAIN_ALERT_COLOR if main else NORMAL_COLOR,
         "fields": [
             {"name": "🧠 チップ", "value": chip_text, "inline": True},
             # Apple シリコンはメモリをGPUと共有するため、このメモリ量がVRAMとしても使われる
@@ -436,10 +449,13 @@ def item_embed(item):
     }
 
 
-def notify_discord(new_items, header):
+def notify_discord(new_items, header, main=False):
+    """main=True は本命ウォッチ（13インチAir・32GB・1TB）の通知。見出しと色で目立たせる。"""
     webhook = os.environ.get("DISCORD_WEBHOOK_URL")
-    embeds = [item_embed(item) for item in new_items.values()]
-    heading = US_ALERT_HEADING if any(is_us_item(item) for item in new_items.values()) else ""
+    embeds = [item_embed(item, main=main) for item in new_items.values()]
+    heading = (MAIN_ALERT_HEADING if main else "") + (
+        US_ALERT_HEADING if any(is_us_item(item) for item in new_items.values()) else ""
+    )
     payload_base = {"content": f"{heading}<@{MENTION_USER_ID}> {header}"}
     # Discordのembedは1メッセージ10件まで
     for i in range(0, len(embeds), 10):
@@ -478,7 +494,7 @@ def main():
         print(f"{w['name']}: tiles: {len(tiles)}, hit: {len(items)}, new: {len(new_items)}")
         current.update(items)
         if new_items:
-            notify_discord(new_items, w["header"])
+            notify_discord(new_items, w["header"], main=w.get("main", False))
     save_state({"items": current, "kb": kb_cache})
 
 

@@ -722,3 +722,50 @@ class UsKeyboardAlertTests(unittest.TestCase):
         self.assertIn(f"<@{check.MENTION_USER_ID}> 見出し", us_content)
         jis_content = self.notified_content({"B": self.item("jis")})
         self.assertEqual(jis_content, f"<@{check.MENTION_USER_ID}> 見出し")
+
+
+class MainConfigAlertTests(unittest.TestCase):
+    """本命（13インチAir・32GB・1TB）の出品も見逃さないよう目立たせる。"""
+
+    def item(self, layout):
+        return {"title": "x", "price": "297,800円", "url": "u", "specs": check.describe_specs(air_tile(), layout)}
+
+    def content(self, items, main):
+        os.environ.pop("DISCORD_WEBHOOK_URL", None)
+        with mock.patch("builtins.print") as printed:
+            check.notify_discord(items, "見出し", main=main)
+        payloads = [json.loads(c.args[0]) for c in printed.call_args_list if c.args and c.args[0].startswith("{")]
+        return payloads[0]
+
+    def test_only_main_watches_are_flagged(self):
+        self.assertEqual([bool(w.get("main")) for w in check.WATCHES], [True, True, False, False, False])
+
+    def test_main_jis_is_gold_with_crown_and_heading(self):
+        payload = self.content({"A": self.item("jis")}, main=True)
+        self.assertTrue(payload["content"].startswith(check.MAIN_ALERT_HEADING))
+        self.assertNotIn(check.US_ALERT_HEADING, payload["content"])
+        embed = payload["embeds"][0]
+        self.assertEqual(embed["color"], check.MAIN_ALERT_COLOR)
+        self.assertTrue(embed["title"].startswith(check.MAIN_TITLE_PREFIX))
+        self.assertIn("本命の構成です", embed["description"])
+
+    def test_main_us_gets_both_headings_and_us_red(self):
+        payload = self.content({"A": self.item("us")}, main=True)
+        self.assertTrue(payload["content"].startswith(check.MAIN_ALERT_HEADING + check.US_ALERT_HEADING))
+        embed = payload["embeds"][0]
+        self.assertEqual(embed["color"], check.US_ALERT_COLOR)
+        self.assertTrue(embed["title"].startswith(check.US_TITLE_PREFIX + check.MAIN_TITLE_PREFIX))
+
+    def test_non_main_is_unchanged(self):
+        payload = self.content({"A": self.item("jis")}, main=False)
+        self.assertEqual(payload["content"], f"<@{check.MENTION_USER_ID}> 見出し")
+        self.assertEqual(payload["embeds"][0]["color"], check.NORMAL_COLOR)
+
+    def test_main_watch_notification_passes_main_flag(self):
+        tile = air_with(part="MAIN_JIS", kb="JIS")
+        with tempfile.TemporaryDirectory() as d, mock.patch("check.STATE_FILE", os.path.join(d, "state.json")):
+            pages = {check.AIR_URL: [tile], check.PRO_URL: []}
+            with mock.patch("check.fetch_tiles", side_effect=lambda url: pages[url]), mock.patch("check.notify_discord") as notify:
+                check.main()
+        self.assertEqual(len(notify.call_args_list), 1)
+        self.assertTrue(notify.call_args.kwargs.get("main"))

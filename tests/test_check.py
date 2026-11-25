@@ -681,6 +681,44 @@ class NotificationFormatTests(unittest.TestCase):
         tile = air_tile()  # 一覧JSONにストレージ容量もコア数も無いケース（通知文の「不明」表示の確認）
         tile["filters"]["dimensions"].pop("dimensionCapacity")
         embed = check.item_embed({"title": "x", "price": "1円", "url": "u", "specs": check.describe_specs(tile, "us")})
-        self.assertEqual(embed["title"], "13インチ MacBook Air｜M5｜メモリ32GB｜SSD 不明｜US配列")
+        self.assertEqual(embed["title"], check.US_TITLE_PREFIX + "13インチ MacBook Air｜M5｜メモリ32GB｜SSD 不明｜US配列")
         legacy = check.item_embed({"title": "テスト", "price": "説明", "url": "u"})
         self.assertEqual(legacy, {"title": "テスト", "url": "u", "description": "**説明**", "color": 0x2ECC71})
+
+
+class UsKeyboardAlertTests(unittest.TestCase):
+    """USキーボードの出品は見逃さないよう、通知をド派手にする。JISは従来どおり。"""
+
+    def item(self, layout):
+        return {"title": "x", "price": "297,800円", "url": "u", "specs": check.describe_specs(air_tile(), layout)}
+
+    def test_us_embed_is_red_with_prefix_and_alert(self):
+        embed = check.item_embed(self.item("us"))
+        self.assertEqual(embed["color"], check.US_ALERT_COLOR)
+        self.assertTrue(embed["title"].startswith(check.US_TITLE_PREFIX))
+        self.assertIn("USキーボードの出品です", embed["description"])
+        self.assertIn("297,800円", embed["description"])
+        fields = {f["name"]: f["value"] for f in embed["fields"]}
+        self.assertIn("US配列", fields["⌨️ キーボード"])
+        self.assertIn("🇺🇸", fields["⌨️ キーボード"])
+
+    def test_jis_embed_stays_normal(self):
+        embed = check.item_embed(self.item("jis"))
+        self.assertEqual(embed["color"], check.NORMAL_COLOR)
+        self.assertFalse(embed["title"].startswith(check.US_TITLE_PREFIX))
+        self.assertNotIn("USキーボードの出品です", embed["description"])
+
+    def notified_content(self, items):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("DISCORD_WEBHOOK_URL", None)
+            with mock.patch("builtins.print") as printed:
+                check.notify_discord(items, "見出し")
+        payloads = [json.loads(c.args[0]) for c in printed.call_args_list if c.args and c.args[0].startswith("{")]
+        return payloads[0]["content"]
+
+    def test_message_gets_big_heading_only_when_us_item_included(self):
+        us_content = self.notified_content({"A": self.item("us")})
+        self.assertTrue(us_content.startswith(check.US_ALERT_HEADING))
+        self.assertIn(f"<@{check.MENTION_USER_ID}> 見出し", us_content)
+        jis_content = self.notified_content({"B": self.item("jis")})
+        self.assertEqual(jis_content, f"<@{check.MENTION_USER_ID}> 見出し")

@@ -200,6 +200,18 @@ CHIP_RE = re.compile(
     r"(?:(\d+)コアCPUと(\d+)コアGPUを搭載した)?Apple\s*(M\d+(?:\s*(?:Pro|Max|Ultra))?)\s*チップ"
 )
 KEYBOARD_LABELS = {"us": "US配列", "jis": "JIS配列（日本語）"}
+
+# USキーボードの出品はめったに出ない（2026-11時点で一度も観測なし）ので、見逃さないよう通知をド派手にする。
+# embedの色を赤にし、タイトル・説明・キーボード欄を目立たせ、メッセージ本文の先頭に大見出しを付ける。
+NORMAL_COLOR = 0x2ECC71
+US_ALERT_COLOR = 0xFF0000
+US_TITLE_PREFIX = "🚨🇺🇸【USキーボード】🇺🇸🚨 "
+US_ALERT_HEADING = "# 🚨🚨🚨 USキーボードの整備済MacBookが出ました！ 🚨🚨🚨\n## 🇺🇸 めったに出ないので今すぐ確認を！ 🇺🇸\n"
+
+
+def is_us_item(item):
+    specs = item.get("specs") or {}
+    return specs.get("keyboard") == KEYBOARD_LABELS["us"]
 MODEL_LABELS = {"macbookair": "MacBook Air", "macbookpro": "MacBook Pro"}
 
 
@@ -366,7 +378,7 @@ def item_embed(item):
             "title": item["title"],
             "url": item["url"],
             "description": f"**{item['price']}**",
-            "color": 0x2ECC71,
+            "color": NORMAL_COLOR,
         }
 
     unknown = "不明"
@@ -398,18 +410,27 @@ def item_embed(item):
     appearance = specs.get("color") or unknown
     if specs.get("nano_texture"):
         appearance += "\nNano-textureディスプレイ"
+    us = is_us_item(item)
+    title = "｜".join(summary)
+    description = f"💴 **{item['price']}**　👉 タイトルをクリックで商品ページへ"
+    keyboard_text = specs.get("keyboard") or unknown
+    if us:
+        title = US_TITLE_PREFIX + title
+        description = "🚨 **USキーボードの出品です！売り切れる前にすぐ確認を！** 🚨\n" + description
+        keyboard_text = "🇺🇸 **US配列** 🇺🇸"
     return {
         # 例: "14インチ MacBook Pro｜M5 Pro（15コアCPU・16コアGPU）｜メモリ24GB｜SSD 1TB｜JIS配列｜シルバー"
-        "title": "｜".join(summary)[:256],
+        # US配列なら先頭に US_TITLE_PREFIX が付き、色が赤になる
+        "title": title[:256],
         "url": item["url"],
-        "description": f"💴 **{item['price']}**　👉 タイトルをクリックで商品ページへ",
-        "color": 0x2ECC71,
+        "description": description,
+        "color": US_ALERT_COLOR if us else NORMAL_COLOR,
         "fields": [
             {"name": "🧠 チップ", "value": chip_text, "inline": True},
             # Apple シリコンはメモリをGPUと共有するため、このメモリ量がVRAMとしても使われる
             {"name": "💾 メモリ（VRAM共用）", "value": specs.get("memory") or unknown, "inline": True},
             {"name": "🗄️ ストレージ", "value": f"SSD {specs.get('storage') or unknown}", "inline": True},
-            {"name": "⌨️ キーボード", "value": specs.get("keyboard") or unknown, "inline": True},
+            {"name": "⌨️ キーボード", "value": keyboard_text, "inline": True},
             {"name": "🎨 カラー", "value": appearance, "inline": True},
         ],
     }
@@ -418,7 +439,8 @@ def item_embed(item):
 def notify_discord(new_items, header):
     webhook = os.environ.get("DISCORD_WEBHOOK_URL")
     embeds = [item_embed(item) for item in new_items.values()]
-    payload_base = {"content": f"<@{MENTION_USER_ID}> {header}"}
+    heading = US_ALERT_HEADING if any(is_us_item(item) for item in new_items.values()) else ""
+    payload_base = {"content": f"{heading}<@{MENTION_USER_ID}> {header}"}
     # Discordのembedは1メッセージ10件まで
     for i in range(0, len(embeds), 10):
         payload = dict(payload_base, embeds=embeds[i : i + 10])
